@@ -126,23 +126,42 @@ public static class RecoveryIntegrationTests
             for (int i = 0; i < frag.Length; i += 4096) { f.Write(frag, i, 4096); f.Flush(true); }
         var part = (await vd.ReadAsync()).Partitions.Single(p => p.Volume?.Label == "LE-ADV");
         VolumeLocks.Acquire(new[] { part.Volume!.VolumeGuidPath }, dismount: true).Dispose();
+
+        string Diff(byte[] got, byte[] want)
+        {
+            int bad = 0, first = -1, zero = 0;
+            for (int i = 0; i < Math.Min(got.Length, want.Length); i += 4096)
+            {
+                int n = Math.Min(4096, want.Length - i);
+                if (!got.AsSpan(i, Math.Min(n, got.Length - i)).SequenceEqual(want.AsSpan(i, n)))
+                {
+                    bad++; if (first < 0) first = i;
+                    if (got.AsSpan(i, Math.Min(n, got.Length - i)).IndexOfAnyExcept((byte)0) < 0) zero++;
+                }
+            }
+            return $"len {got.Length}/{want.Length}, {bad} bad 4K blocks ({zero} zero), first at {first}";
+        }
+        void Check(string phase, bool existing)
+        {
+            var d0 = (vd.ReadAsync().GetAwaiter().GetResult());
+            using var dv = new PhysicalDiskDevice(d0, writable: false);
+            var rd = RecoveryReaders.Open(new OffsetDevice(dv, (long)part.OffsetBytes, (long)part.SizeBytes))!;
+            var list = rd.Scan(existing, null, CancellationToken.None);
+            foreach (var (name, data) in new[] { ("packed.txt", text), ("frag.bin", frag) })
+            {
+                var f = list.SingleOrDefault(x => x.Name == name && x.IsDeleted == !existing);
+                Assert.True(f is not null, $"{phase}: {name} listed");
+                Assert.True(f!.Recoverability != Recoverability.Unrecoverable, $"{phase}: {name}: {f.Recoverability} {f.Note}");
+                using var ms = new MemoryStream();
+                rd.Extract(f, ms, CancellationToken.None);
+                Assert.True(ms.ToArray().AsSpan().SequenceEqual(data), $"{phase}: {name} ({f.Recoverability}, size {f.Size}): {Diff(ms.ToArray(), data)}");
+            }
+        }
+        Check("before delete", existing: true);
         File.Delete(root + "packed.txt");
         File.Delete(root + "frag.bin");
         VolumeLocks.Acquire(new[] { part.Volume!.VolumeGuidPath }, dismount: true).Dispose();
-
-        var disk = await vd.ReadAsync();
-        using var dev = new PhysicalDiskDevice(disk, writable: false);
-        var reader = RecoveryReaders.Open(new OffsetDevice(dev, (long)part.OffsetBytes, (long)part.SizeBytes))!;
-        var deleted = reader.Scan(false, null, CancellationToken.None);
-        foreach (var (name, data) in new[] { ("packed.txt", text), ("frag.bin", frag) })
-        {
-            var f = deleted.SingleOrDefault(x => x.Name == name);
-            Assert.True(f is not null, $"{name} listed; got {deleted.Count} deleted");
-            Assert.True(f!.Recoverability != Recoverability.Unrecoverable, $"{name}: {f.Recoverability} {f.Note}");
-            using var ms = new MemoryStream();
-            reader.Extract(f, ms, CancellationToken.None);
-            Assert.True(ms.ToArray().AsSpan().SequenceEqual(data), $"{name} content identical");
-        }
+        Check("after delete", existing: false);
     }
 
     [Test]
