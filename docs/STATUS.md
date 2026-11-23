@@ -73,7 +73,7 @@ Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not 
 | FAT32 deleted-file recovery (long names, contiguous-cluster heuristic) | ✅ | Fragmented deleted FAT files cannot be fully recovered by any tool; marked Poor when clusters are reused |
 | Recover files from a lost partition without restoring it | ✅ | "Browse files" on a found partition |
 | Destination on the source disk refused | ✅ | Resolved from mount points |
-| NTFS compressed (LZNT1) and attribute-list (very fragmented / huge) files | ✅ post-1.0 | Extension records checked to belong to their base record; tested on an ntfs-3g image and on files compressed/fragmented and deleted by Windows (CI) |
+| NTFS compressed (LZNT1) and attribute-list (very fragmented / huge) files | ✅ post-1.0 | Compressed files: recovered after deletion too (tested with Windows' compact.exe). Attribute-list files: read when they still exist or their volume is damaged; when Windows *deletes* one it first truncates its run list, so no tool can locate it from metadata — Lasteast says so (with the original size) and points to search by content (verified on Windows in CI) |
 | NTFS encrypted (EFS) files | 🚫 | Listed, not extracted: they cannot be read without the owner's keys |
 | Reading a volume whose boot sector or MFT record 0 is damaged | ✅ post-1.0 | Through the validated backup boot sector (in memory, nothing written) and $MFTMirr |
 | exFAT deleted-file recovery (entry sets with InUse cleared, NoFatChain and FAT-chain files, allocation-bitmap reuse check) | ✅ post-1.0 | Unit-tested on a hand-built image (fsck-clean) and on files deleted by Windows' exFAT driver (CI) |

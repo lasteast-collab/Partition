@@ -498,6 +498,7 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
             long parent = 0;
             ushort parentSeq = 0;
             DateTime? created = null, modified = null;
+            long fileNameSize = 0;
             var set = Attributes(buf).Any(a => a.Type == 0x20) ? RecordSet(n, buf) : new List<byte[]> { buf };
             foreach (var rec in set)
             foreach (var (type, off, _) in Attributes(rec))
@@ -522,6 +523,7 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
                     parent = pref & 0xFFFFFFFFFFFF;
                     parentSeq = (ushort)(pref >> 48);
                     name = Encoding.Unicode.GetString(buf2, voff + 0x42, len * 2);
+                    fileNameSize = BinaryPrimitives.ReadInt64LittleEndian(buf2.AsSpan(voff + 0x30));
                 }
             }
             bool isDir = (flags & 0x02) != 0;
@@ -531,10 +533,15 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
             {
                 data = FindData(set, out var aflags, out var partial, out _);
                 if ((aflags & 0x4000) != 0) problem = "encrypted";
+                // Windows truncates very fragmented files (attribute lists) before deleting them: the run list is
+                // emptied, so nothing records where the data was. Say so instead of "recovering" an empty file.
+                else if ((flags & 0x01) == 0 && data is { Resident: null, Size: 0 } && data.Runs!.Count == 0 && fileNameSize > 0)
+                    problem = "location released by Windows when deleted (try search by content)";
                 else if ((aflags & 0x0001) != 0 && data is { Resident: null, CompressionUnit: 0 }) problem = "compressed (unknown unit)";
                 else if (partial) problem = "part of the location is lost";
             }
-            _records[n] = new RecordInfo(n, seq, (flags & 0x01) != 0, isDir, parent, parentSeq, name, data?.Size ?? 0, created, modified,
+            _records[n] = new RecordInfo(n, seq, (flags & 0x01) != 0, isDir, parent, parentSeq, name,
+                problem is not null && (data?.Size ?? 0) == 0 ? fileNameSize : data?.Size ?? 0, created, modified,
                 data?.Resident, data?.Runs, problem, data?.CompressionUnit ?? 0);
         }
 

@@ -6,8 +6,9 @@
 - File Recovery reads volumes whose start is damaged through the file system's backup boot sector — in memory only,
   nothing is written — so files can be copied off with their names before any repair. "Copy files…" on unreadable
   partitions in Partition Recovery. A damaged MFT record 0 is read from $MFTMirr.
-- NTFS: very fragmented files (attribute lists / extension records) and NTFS-compressed files (LZNT1) are now
-  recovered; previously they were listed as unrecoverable.
+- NTFS-compressed files (LZNT1) are now recovered, deleted ones included. Very fragmented files (attribute lists) are
+  read from damaged volumes; deleted ones are reported honestly as not locatable (Windows truncates them on delete)
+  instead of producing an empty file.
 
 ## 1.0.0-preview.2
 

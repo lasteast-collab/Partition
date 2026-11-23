@@ -161,7 +161,18 @@ public static class RecoveryIntegrationTests
         File.Delete(root + "packed.txt");
         File.Delete(root + "frag.bin");
         VolumeLocks.Acquire(new[] { part.Volume!.VolumeGuidPath }, dismount: true).Dispose();
-        Check("after delete", existing: false);
+        // After the delete: the compressed file is recovered byte-exact. The 1400-fragment file is the case Windows
+        // makes unrecoverable from metadata (it truncates the run list first): it must be reported as such, never as
+        // an empty "Good" file.
+        var d1 = await vd.ReadAsync();
+        using var dv1 = new PhysicalDiskDevice(d1, writable: false);
+        var rd1 = RecoveryReaders.Open(new OffsetDevice(dv1, (long)part.OffsetBytes, (long)part.SizeBytes))!;
+        var gone = rd1.Scan(false, null, CancellationToken.None);
+        var p1 = gone.Single(x => x.Name == "packed.txt");
+        using (var ms = new MemoryStream()) { rd1.Extract(p1, ms, CancellationToken.None); Assert.True(ms.ToArray().AsSpan().SequenceEqual(text), "compressed file recovered after delete"); }
+        var fr = gone.Single(x => x.Name == "frag.bin");
+        Assert.True(fr.Recoverability == Recoverability.Unrecoverable && fr.Note is not null, $"truncated file reported honestly: {fr.Recoverability} {fr.Note} {(rd1 as NtfsRecoveryReader)?.Describe(fr)}");
+        Assert.Equal((long)frag.Length, fr.Size);
     }
 
     [Test]
