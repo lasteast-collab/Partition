@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Windows-only integration tests against real VHDX virtual disks. Requires administrator.
+       On other OSes, or without elevation, every test is reported as SKIPPED and the exit code is 0. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Lasteast.IntegrationTests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Lasteast.Core\Lasteast.Core.csproj" />
+    <ProjectReference Include="..\..\src\Lasteast.Storage.Windows\Lasteast.Storage.Windows.csproj" />
+  </ItemGroup>
+</Project>
