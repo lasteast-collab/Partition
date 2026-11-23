@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Lasteast.App</RootNamespace>
+    <AssemblyName>LasteastPartition</AssemblyName>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <!-- Allows `dotnet build` of this project from non-Windows CI for compile checks. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lasteast.Core\Lasteast.Core.csproj" />
+    <ProjectReference Include="..\Lasteast.Storage.Windows\Lasteast.Storage.Windows.csproj" />
+    <ProjectReference Include="..\Lasteast.Presentation\Lasteast.Presentation.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\logo-mark.png" />
+    <Resource Include="Assets\app.ico" />
+    <None Include="Assets\logo-full.jpg" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,323 @@
+<UserControl x:Class="Lasteast.App.Views.AnalyzerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Lasteast.App.Infrastructure"
+             xmlns:core="clr-namespace:Lasteast.Core.Analysis;assembly=Lasteast.Core"
+             xmlns:vm="clr-namespace:Lasteast.Presentation.ViewModels;assembly=Lasteast.Presentation">
+    <UserControl.Resources>
+        <Style x:Key="TabBtn" TargetType="Button" BasedOn="{StaticResource Button.Outline}">
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Padding" Value="12,5" />
+            <Setter Property="Command" Value="{Binding SetTabCommand}" />
+        </Style>
+        <!-- file rows: Largest / Old / Recent -->
+        <DataTemplate x:Key="FileActions" DataType="{x:Type vm:FileRow}">
+            <StackPanel Orientation="Horizontal">
+                <Button Style="{StaticResource Button.Base}" Padding="6,2" ToolTip="{ui:Tr An.Reveal}"
+                        Command="{Binding DataContext.RevealCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                    <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE8DA;" FontSize="13" />
+                </Button>
+                <Button Style="{StaticResource Button.Base}" Padding="6,2" ToolTip="{ui:Tr An.Recycle}"
+                        Command="{Binding DataContext.RecycleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                    <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE74D;" FontSize="13" Foreground="{DynamicResource Sev.Critical}" />
+                </Button>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <DockPanel Margin="24,20">
+        <!-- Header / controls -->
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock Text="{Binding Title}" Style="{StaticResource Text.PageTitle}" />
+            <TextBlock Text="{ui:Tr An.Subtitle}" Style="{StaticResource Text.Muted}" FontSize="13" Margin="0,2,0,12" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                <ComboBox ItemsSource="{Binding Locations}" SelectedItem="{Binding SelectedLocation}" MinWidth="320" AutomationProperties.Name="{ui:Tr An.Location}">
+                    <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Style="{StaticResource Button.Outline}" Command="{Binding BrowseCommand}" Content="{ui:Tr An.Browse}" Margin="8,0,0,0" />
+                <Button Style="{StaticResource Button.Accent}" Command="{Binding ScanCommand}" Margin="8,0,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE721;" FontSize="14" Margin="0,0,6,0" />
+                        <TextBlock Text="{ui:Tr An.Scan}" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource Button.Outline}" Command="{Binding CancelCommand}" Content="{ui:Tr Editor.Cancel}" Margin="8,0,0,0" />
+            </StackPanel>
+            <TextBlock Text="{Binding ProgressText}" Style="{StaticResource Text.Muted}" Margin="0,0,0,6" />
+            <Border Style="{StaticResource Card}" Padding="10,6" Margin="0,0,0,8" Visibility="{Binding HasMessage, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+            </Border>
+            <StackPanel Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding SummaryText}" FontWeight="SemiBold" Margin="0,0,0,10" />
+                <WrapPanel Margin="0,0,0,10">
+                    <Button Style="{StaticResource TabBtn}" CommandParameter="Treemap" Content="{ui:Tr An.Tab.Treemap}" />
+                    <Button Style="{StaticResource TabBtn}" CommandParameter="Largest" Content="{ui:Tr An.Tab.Largest}" />
+                    <Button Style="{StaticResource TabBtn}" CommandParameter="Folders" Content="{ui:Tr An.Tab.Folders}" />
+                    <Button Style="{StaticResource TabBtn}" CommandParameter="Types" Content="{ui:Tr An.Tab.Types}" />
+                    <Button Style="{StaticResource TabBtn}" CommandParameter="Old" Content="{ui:Tr An.Tab.Old}" />
+                    <Button Style="{StaticResource TabBtn}" CommandParameter="Recent" Content="{ui:Tr An.Tab.Recent}" />
+                    <Button Style="{StaticResource TabBtn}" CommandParameter="Empty" Content="{ui:Tr An.Tab.Empty}" />
+                    <Button Style="{StaticResource TabBtn}" CommandParameter="Duplicates" Content="{ui:Tr An.Tab.Duplicates}" />
+                </WrapPanel>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Intro -->
+        <Border Style="{StaticResource Card}" Padding="28" VerticalAlignment="Top" Visibility="{Binding ShowIntro, Converter={StaticResource BoolToVis}}">
+            <StackPanel HorizontalAlignment="Center" MaxWidth="560">
+                <Image Source="/Assets/logo-mark.png" Width="90" Height="90" />
+                <TextBlock Text="{ui:Tr An.IntroTitle}" Style="{StaticResource Text.Section}" HorizontalAlignment="Center" Margin="0,10,0,4" />
+                <TextBlock Text="{ui:Tr An.IntroBody}" Style="{StaticResource Text.Muted}" FontSize="13" TextWrapping="Wrap" TextAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <Grid Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}">
+            <!-- Treemap -->
+            <DockPanel Visibility="{Binding Tab, Converter={StaticResource EqualsToVis}, ConverterParameter=Treemap}">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <Button DockPanel.Dock="Left" Style="{StaticResource Button.Outline}" Command="{Binding UpCommand}" Padding="8,4" Margin="0,0,8,0"
+                            ToolTip="{ui:Tr An.Up}" AutomationProperties.Name="{ui:Tr An.Up}">
+                        <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE74A;" FontSize="12" />
+                    </Button>
+                    <ItemsControl ItemsSource="{Binding Breadcrumb}" Focusable="False" VerticalAlignment="Center">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type core:FolderNode}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Style="{StaticResource Button.Base}" Padding="4,2" Content="{Binding Name}"
+                                            Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                    <TextBlock Text="›" Style="{StaticResource Text.Muted}" VerticalAlignment="Center" Margin="2,0" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DockPanel>
+                <TextBlock DockPanel.Dock="Bottom" Text="{ui:Tr An.TreemapHint}" Style="{StaticResource Text.Muted}" Margin="0,6,0,0" />
+                <!-- Treemap is always drawn left-to-right (sizes, not reading order) -->
+                <Border x:Name="TreemapHost" FlowDirection="LeftToRight" Background="{DynamicResource Brush.Surface}" CornerRadius="8" ClipToBounds="True"
+                        SizeChanged="TreemapHost_SizeChanged">
+                    <ItemsControl ItemsSource="{Binding TreemapItems}" Focusable="False">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:TreemapItem}">
+                                <Button Width="{Binding Width}" Height="{Binding Height}" Padding="0" ToolTip="{Binding ToolTip}"
+                                        Command="{Binding DataContext.OpenItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                        AutomationProperties.Name="{Binding ToolTip}" Cursor="Hand" FocusVisualStyle="{x:Null}">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="B" Background="{Binding ColorKey, Converter={StaticResource TreemapBrush}}" CornerRadius="3"
+                                                    BorderBrush="{DynamicResource Brush.Window}" BorderThickness="0.5">
+                                                <StackPanel Margin="6,4" Visibility="{Binding ShowLabel, Converter={StaticResource BoolToVis}}">
+                                                    <TextBlock Text="{Binding Name}" Foreground="White" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding SizeText}" Foreground="#E6FFFFFF" FontSize="11" />
+                                                </StackPanel>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="B" Property="Opacity" Value="0.82" />
+                                                    <Setter TargetName="B" Property="BorderBrush" Value="White" />
+                                                    <Setter TargetName="B" Property="BorderThickness" Value="1.5" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+            </DockPanel>
+
+            <!-- File lists (Largest / Old / Recent share one grid) -->
+            <DockPanel x:Name="FileLists">
+                <DockPanel.Style>
+                    <Style TargetType="DockPanel">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Tab}" Value="Largest"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                            <DataTrigger Binding="{Binding Tab}" Value="Old"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                            <DataTrigger Binding="{Binding Tab}" Value="Recent"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </DockPanel.Style>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="{ui:Tr An.MinSize}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox Text="{Binding MinSizeMb, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input}" Width="80" />
+                    <TextBlock Text="{ui:Tr An.Extensions}" VerticalAlignment="Center" Margin="16,0,6,0" />
+                    <TextBox Text="{Binding ExtensionFilter, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input}" Width="180" />
+                </StackPanel>
+                <Border Style="{StaticResource Card}" Padding="0">
+                    <DataGrid ItemsSource="{Binding Files}" EnableRowVirtualization="True">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="{ui:Tr An.Col.Name}" SortMemberPath="Name" Width="2*">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:FileRow}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Rectangle Width="10" Height="10" RadiusX="2" RadiusY="2" Margin="0,0,8,0" Fill="{Binding ColorKey, Converter={StaticResource TreemapBrush}}" />
+                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="{ui:Tr Col.Capacity}" Binding="{Binding SizeText}" SortMemberPath="Size" Width="100" />
+                            <DataGridTextColumn Header="{ui:Tr An.Col.Modified}" Binding="{Binding Modified}" SortMemberPath="ModifiedUtc" Width="100" />
+                            <DataGridTextColumn Header="{ui:Tr Col.Type}" Binding="{Binding Category}" Width="110" />
+                            <DataGridTextColumn Header="{ui:Tr An.Col.Folder}" Binding="{Binding Folder}" Width="3*" />
+                            <DataGridTemplateColumn Width="80" CellTemplate="{StaticResource FileActions}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Border>
+            </DockPanel>
+
+            <!-- Folders -->
+            <Border Style="{StaticResource Card}" Padding="0" Visibility="{Binding Tab, Converter={StaticResource EqualsToVis}, ConverterParameter=Folders}">
+                <DataGrid ItemsSource="{Binding Folders}">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="{ui:Tr An.Col.Name}" Binding="{Binding Name}" Width="*" />
+                        <DataGridTextColumn Header="{ui:Tr Col.Capacity}" Binding="{Binding SizeText}" SortMemberPath="Size" Width="100" />
+                        <DataGridTemplateColumn Header="%" SortMemberPath="Fraction" Width="120">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:FolderRow}">
+                                    <Border Height="6" HorizontalAlignment="Left" Background="{DynamicResource Brush.Accent}" CornerRadius="3"
+                                            Width="{Binding Fraction, Converter={StaticResource FractionToWidth}, ConverterParameter=100}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="{ui:Tr An.Col.Files}" Binding="{Binding Files}" Width="90" />
+                        <DataGridTextColumn Header="{ui:Tr An.Col.Folder}" Binding="{Binding Path}" Width="2*" />
+                        <DataGridTemplateColumn Width="50">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:FolderRow}">
+                                    <Button Style="{StaticResource Button.Base}" Padding="6,2" ToolTip="{ui:Tr An.Reveal}"
+                                            Command="{Binding DataContext.RevealCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                                        <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE8DA;" FontSize="13" />
+                                    </Button>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+
+            <!-- Types -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding Tab, Converter={StaticResource EqualsToVis}, ConverterParameter=Types}">
+                <StackPanel>
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="{ui:Tr An.ByCategory}" Style="{StaticResource Text.Section}" />
+                            <ItemsControl ItemsSource="{Binding Categories}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:CategoryRow}">
+                                        <Grid Margin="0,3">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="150" />
+                                                <ColumnDefinition Width="320" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Name}" />
+                                            <Border Grid.Column="1" Height="10" HorizontalAlignment="Left" CornerRadius="3" Background="{Binding ColorKey, Converter={StaticResource TreemapBrush}}"
+                                                    Width="{Binding Fraction, Converter={StaticResource FractionToWidth}, ConverterParameter=300}" />
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                                <TextBlock Text="{Binding SizeText}" FontWeight="SemiBold" Margin="0,0,10,0" />
+                                                <TextBlock Text="{Binding CountText}" Style="{StaticResource Text.Muted}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="{ui:Tr An.ByExtension}" Style="{StaticResource Text.Section}" />
+                            <ItemsControl ItemsSource="{Binding Extensions}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:CategoryRow}">
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="150" />
+                                                <ColumnDefinition Width="320" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Name}" FontFamily="{StaticResource Font.Mono}" />
+                                            <Border Grid.Column="1" Height="8" HorizontalAlignment="Left" CornerRadius="3" Background="{Binding ColorKey, Converter={StaticResource TreemapBrush}}"
+                                                    Width="{Binding Fraction, Converter={StaticResource FractionToWidth}, ConverterParameter=300}" />
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                                <TextBlock Text="{Binding SizeText}" Margin="0,0,10,0" />
+                                                <TextBlock Text="{Binding CountText}" Style="{StaticResource Text.Muted}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Empty folders -->
+            <Border Style="{StaticResource Card}" Visibility="{Binding Tab, Converter={StaticResource EqualsToVis}, ConverterParameter=Empty}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="{ui:Tr An.EmptyNote}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <ListBox ItemsSource="{Binding EmptyFolders}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Brush.Text}"
+                             VirtualizingPanel.IsVirtualizing="True">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Base}" Padding="6,2" ToolTip="{ui:Tr An.Reveal}"
+                                            Command="{Binding DataContext.RevealCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                                        <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE8DA;" FontSize="12" />
+                                    </Button>
+                                    <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Duplicates -->
+            <DockPanel Visibility="{Binding Tab, Converter={StaticResource EqualsToVis}, ConverterParameter=Duplicates}">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button Style="{StaticResource Button.Accent}" Command="{Binding FindDuplicatesCommand}" Content="{ui:Tr An.FindDuplicates}" />
+                    <TextBlock Text="{ui:Tr An.DupNote}" Style="{StaticResource Text.Muted}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="640" />
+                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Duplicates}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:DuplicateRow}">
+                                <Border Style="{StaticResource Card}" Margin="0,0,0,8" Padding="12,10">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding WastedText}" Foreground="{DynamicResource Sev.High}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Header}" FontWeight="SemiBold" />
+                                        </DockPanel>
+                                        <ItemsControl ItemsSource="{Binding Paths}" Focusable="False" Margin="0,6,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <DockPanel Margin="0,1">
+                                                        <Button DockPanel.Dock="Right" Style="{StaticResource Button.Base}" Padding="6,1" ToolTip="{ui:Tr An.Reveal}"
+                                                                Command="{Binding DataContext.RevealCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                                                            <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE8DA;" FontSize="12" />
+                                                        </Button>
+                                                        <TextBlock Text="{Binding}" Style="{StaticResource Text.Muted}" FontSize="12.5" VerticalAlignment="Center" />
+                                                    </DockPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</UserControl>

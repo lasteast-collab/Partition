@@ -1,0 +1,64 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{C207AA16-1C66-4F9E-92C5-B30B183038EE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lasteast.Core", "src\Lasteast.Core\Lasteast.Core.csproj", "{F40F2C31-C9BE-4918-8063-7F8CB086BD04}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lasteast.Storage.Windows", "src\Lasteast.Storage.Windows\Lasteast.Storage.Windows.csproj", "{898A697A-7316-4F1C-886A-01CA912CF9AB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lasteast.Presentation", "src\Lasteast.Presentation\Lasteast.Presentation.csproj", "{04B321AC-2FB2-4DBD-A11C-131928494DE1}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{5CCC7172-A8A7-48AD-A28F-B77B2F936524}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lasteast.Tests", "tests\Lasteast.Tests\Lasteast.Tests.csproj", "{6CA6D5F5-C803-49B6-B174-D2B4D64C998F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lasteast.Cli", "src\Lasteast.Cli\Lasteast.Cli.csproj", "{50E8C82C-0C0D-4B0E-BC69-C3AB3B3E2980}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lasteast.App", "src\Lasteast.App\Lasteast.App.csproj", "{34D7467E-BEE2-4E2F-8508-08EC4070D2FF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F40F2C31-C9BE-4918-8063-7F8CB086BD04}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F40F2C31-C9BE-4918-8063-7F8CB086BD04}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F40F2C31-C9BE-4918-8063-7F8CB086BD04}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F40F2C31-C9BE-4918-8063-7F8CB086BD04}.Release|Any CPU.Build.0 = Release|Any CPU
+		{34D7467E-BEE2-4E2F-8508-08EC4070D2FF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{34D7467E-BEE2-4E2F-8508-08EC4070D2FF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{34D7467E-BEE2-4E2F-8508-08EC4070D2FF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{34D7467E-BEE2-4E2F-8508-08EC4070D2FF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{898A697A-7316-4F1C-886A-01CA912CF9AB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{898A697A-7316-4F1C-886A-01CA912CF9AB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{898A697A-7316-4F1C-886A-01CA912CF9AB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{898A697A-7316-4F1C-886A-01CA912CF9AB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{04B321AC-2FB2-4DBD-A11C-131928494DE1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{04B321AC-2FB2-4DBD-A11C-131928494DE1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{04B321AC-2FB2-4DBD-A11C-131928494DE1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{04B321AC-2FB2-4DBD-A11C-131928494DE1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6CA6D5F5-C803-49B6-B174-D2B4D64C998F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6CA6D5F5-C803-49B6-B174-D2B4D64C998F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6CA6D5F5-C803-49B6-B174-D2B4D64C998F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6CA6D5F5-C803-49B6-B174-D2B4D64C998F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{50E8C82C-0C0D-4B0E-BC69-C3AB3B3E2980}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{50E8C82C-0C0D-4B0E-BC69-C3AB3B3E2980}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{50E8C82C-0C0D-4B0E-BC69-C3AB3B3E2980}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{50E8C82C-0C0D-4B0E-BC69-C3AB3B3E2980}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{34D7467E-BEE2-4E2F-8508-08EC4070D2FF} = {C207AA16-1C66-4F9E-92C5-B30B183038EE}
+		{F40F2C31-C9BE-4918-8063-7F8CB086BD04} = {C207AA16-1C66-4F9E-92C5-B30B183038EE}
+		{898A697A-7316-4F1C-886A-01CA912CF9AB} = {C207AA16-1C66-4F9E-92C5-B30B183038EE}
+		{04B321AC-2FB2-4DBD-A11C-131928494DE1} = {C207AA16-1C66-4F9E-92C5-B30B183038EE}
+		{6CA6D5F5-C803-49B6-B174-D2B4D64C998F} = {5CCC7172-A8A7-48AD-A28F-B77B2F936524}
+		{50E8C82C-0C0D-4B0E-BC69-C3AB3B3E2980} = {C207AA16-1C66-4F9E-92C5-B30B183038EE}
+	EndGlobalSection
+EndGlobal

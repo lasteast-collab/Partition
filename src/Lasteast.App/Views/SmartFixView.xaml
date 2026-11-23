@@ -1,0 +1,133 @@
+<UserControl x:Class="Lasteast.App.Views.SmartFixView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Lasteast.App.Infrastructure"
+             xmlns:vm="clr-namespace:Lasteast.Presentation.ViewModels;assembly=Lasteast.Presentation">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,20">
+        <StackPanel>
+            <DockPanel Margin="0,0,0,16">
+                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Accent}" Command="{Binding ScanCommand}" Padding="18,9" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE721;" FontSize="15" Margin="0,0,8,0" />
+                        <TextBlock Text="{ui:Tr SF.Scan}" FontSize="14" />
+                    </StackPanel>
+                </Button>
+                <StackPanel>
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.PageTitle}" />
+                    <TextBlock Text="{ui:Tr SF.Subtitle}" Style="{StaticResource Text.Muted}" FontSize="13" TextWrapping="Wrap" />
+                </StackPanel>
+            </DockPanel>
+
+            <!-- Intro -->
+            <Border Style="{StaticResource Card}" Padding="28" Visibility="{Binding ShowIntro, Converter={StaticResource BoolToVis}}">
+                <StackPanel HorizontalAlignment="Center" MaxWidth="560">
+                    <Image Source="/Assets/logo-mark.png" Width="110" Height="110" />
+                    <TextBlock Text="{ui:Tr SF.IntroTitle}" Style="{StaticResource Text.Section}" FontSize="18" HorizontalAlignment="Center" Margin="0,12,0,4" />
+                    <TextBlock Text="{ui:Tr SF.IntroBody}" TextWrapping="Wrap" TextAlignment="Center" Style="{StaticResource Text.Muted}" FontSize="13" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Visibility="{Binding Scanning, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock Text="{ui:Tr SF.Scanning}" Style="{StaticResource Text.Section}" />
+                    <ProgressBar IsIndeterminate="True" Height="4" Foreground="{DynamicResource Brush.Accent}" Background="{DynamicResource Brush.Track}" BorderThickness="0" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="{Binding HasMessage, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding Message}" Foreground="{DynamicResource Sev.Critical}" TextWrapping="Wrap" />
+            </Border>
+
+            <StackPanel Visibility="{Binding HasScanned, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding ScanSummary}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12" />
+
+                <!-- C: drive expansion (module 9) -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16" Visibility="{Binding HasCDrive, Converter={StaticResource BoolToVis}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="52" Height="52" CornerRadius="10" Background="{DynamicResource Brush.AccentSoft}" Margin="0,0,14,0" VerticalAlignment="Top">
+                            <TextBlock Text="C:" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Accent}" />
+                        </Border>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="{ui:Tr SF.C.Title}" Style="{StaticResource Text.Section}" Margin="0,0,0,4" />
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBlock Text="{ui:Tr Prop.Capacity}" Style="{StaticResource Text.Muted}" /><TextBlock Text=": " Style="{StaticResource Text.Muted}" />
+                                <TextBlock Text="{Binding CDriveSize}" Style="{StaticResource Text.Muted}" Margin="0,0,16,0" />
+                                <TextBlock Text="{ui:Tr Prop.Free}" Style="{StaticResource Text.Muted}" /><TextBlock Text=": " Style="{StaticResource Text.Muted}" />
+                                <TextBlock Text="{Binding CDriveFree}" Style="{StaticResource Text.Muted}" />
+                            </StackPanel>
+                            <Grid Height="8" Background="{DynamicResource Brush.Track}" Margin="0,0,0,8" MaxWidth="520" HorizontalAlignment="Left" Width="520">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="{Binding CDriveUsedFraction, Converter={StaticResource FractionToStar}}" />
+                                    <ColumnDefinition Width="{Binding CDriveUsedFraction, Converter={StaticResource FractionToStar}, ConverterParameter=rest}" />
+                                </Grid.ColumnDefinitions>
+                                <Border Background="{DynamicResource Brush.Accent}" />
+                            </Grid>
+                            <TextBlock Text="{Binding CDriveStatus}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Style="{StaticResource Button.Accent}" Command="{Binding ExpandCCommand}" VerticalAlignment="Top" Margin="12,0,0,0"
+                                Visibility="{Binding CanExpandC, Converter={StaticResource BoolToVis}}" Content="{ui:Tr SF.C.Expand}" />
+                    </Grid>
+                </Border>
+
+                <!-- Findings by severity -->
+                <ItemsControl ItemsSource="{Binding Groups}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:SeverityGroup}">
+                            <StackPanel Margin="0,0,0,14">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Border Style="{StaticResource Pill}" Background="{Binding Kind, Converter={StaticResource SeverityBrush}}">
+                                        <TextBlock Text="{Binding Title}" Foreground="White" FontWeight="SemiBold" />
+                                    </Border>
+                                    <TextBlock Text="{Binding Count}" Style="{StaticResource Text.Muted}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <ItemsControl ItemsSource="{Binding Items}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:SmartFindingViewModel}">
+                                            <Border Style="{StaticResource Card}" Margin="0,0,0,8" Padding="14,12">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="4" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border Background="{Binding SeverityKind, Converter={StaticResource SeverityBrush}}" CornerRadius="2" />
+                                                    <StackPanel Grid.Column="1" Margin="12,0,12,0">
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                        <TextBlock Text="{Binding Explanation}" Style="{StaticResource Text.Muted}" FontSize="12.5" TextWrapping="Wrap" Margin="0,3,0,0"
+                                                                   Visibility="{Binding Explanation, Converter={StaticResource BoolToVis}}" />
+                                                        <TextBlock Text="{Binding Recommendation}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                                                   Visibility="{Binding Recommendation, Converter={StaticResource BoolToVis}}" />
+                                                        <WrapPanel Margin="0,4,0,0" Visibility="{Binding IsHealthy, Converter={StaticResource InvBoolToVis}}">
+                                                            <TextBlock Text="{Binding Benefit}" Style="{StaticResource Text.Muted}" Margin="0,0,14,0"
+                                                                       Visibility="{Binding Benefit, Converter={StaticResource BoolToVis}}" />
+                                                            <TextBlock Text="{Binding RiskText}" Style="{StaticResource Text.Muted}" Margin="0,0,14,0" />
+                                                            <TextBlock Text="{Binding BackupText}" Style="{StaticResource Text.Muted}" Foreground="{DynamicResource Sev.High}" />
+                                                        </WrapPanel>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                        <Button Style="{StaticResource Button.Accent}" Command="{Binding FixCommand}" Content="{Binding FixLabel}"
+                                                                Visibility="{Binding HasFixButton, Converter={StaticResource BoolToVis}}" />
+                                                        <Border Style="{StaticResource Pill}" Background="{DynamicResource Brush.Track}" Margin="0"
+                                                                Visibility="{Binding HasPlannedLabel, Converter={StaticResource BoolToVis}}">
+                                                            <TextBlock Text="{Binding FixLabel}" FontSize="11" Foreground="{DynamicResource Brush.TextMuted}" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="{ui:Tr SF.Footer}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

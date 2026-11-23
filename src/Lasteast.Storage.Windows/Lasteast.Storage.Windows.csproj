@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net8.0 (not -windows) so the pure parsers can be unit-tested on any OS.
+         Every Win32 entry point is guarded by [SupportedOSPlatform("windows")]. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Lasteast.Storage.Windows</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lasteast.Core\Lasteast.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lasteast.Tests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,19 @@
+<UserControl x:Class="Lasteast.App.Views.PlannedView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Lasteast.App.Infrastructure">
+    <!-- Honest placeholder: modules not built yet say so. Nothing on this page touches a disk. -->
+    <Grid Margin="24,20">
+        <Border Style="{StaticResource Card}" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560" Padding="36,32">
+            <StackPanel HorizontalAlignment="Center">
+                <Image Source="/Assets/logo-mark.png" Width="84" Height="84" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding Title}" Style="{StaticResource Text.PageTitle}" HorizontalAlignment="Center" Margin="0,14,0,4" TextAlignment="Center" />
+                <Border Style="{StaticResource Pill}" Background="{DynamicResource Brush.AccentSoft}" HorizontalAlignment="Center" Margin="0,4,0,14">
+                    <TextBlock Text="{Binding PhaseText}" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent}" />
+                </Border>
+                <TextBlock Text="{Binding Description}" TextWrapping="Wrap" TextAlignment="Center" FontSize="14" />
+                <TextBlock Text="{ui:Tr Planned.Note}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,14,0,0" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

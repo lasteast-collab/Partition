@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- UI-framework-agnostic view models: no WPF references, unit-testable on any OS. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Lasteast.Presentation</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lasteast.Core\Lasteast.Core.csproj" />
+  </ItemGroup>
+</Project>
