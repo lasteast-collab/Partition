@@ -3,11 +3,28 @@
 Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not be built (see note)
 
 > **Build verification.** Every push is built and tested on GitHub Actions (`windows-latest`): the full solution
-> including the WPF app, 113 unit tests, and integration tests that run the real engine as administrator against
+> including the WPF app, 120 unit tests, and integration tests that run the real engine as administrator against
 > freshly created VHDX virtual disks (create/format/resize/label/letter, MBR↔GPT conversion, partition move,
-> disk clone, bcdboot onto an ESP, offline registry edit, undelete of files deleted by Windows, restore of a partition deleted by diskpart, BCD parsing, table restore from the engine's automatic backup, NVMe health log, unbuffered benchmark, surface test) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
+> disk clone, bcdboot onto an ESP, offline registry edit, undelete of files deleted by Windows, restore of a partition deleted by diskpart, BCD parsing, table restore from the engine's automatic backup, NVMe health log, unbuffered benchmark, surface test, virtdisk.dll create/attach + initialize) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
 
-## Phase 9 — Health, performance, monitoring  (this build)
+## Phase 10 — Advanced & technician  (this build)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Virtual disks: create (dynamic/fixed), attach, detach, show backing file (virtdisk.dll) | ✅ | Created, attached, initialized and partitioned through the engine in CI |
+| Initialize a blank disk (GPT/MBR) | ✅ | Recognizes Windows' "MBR, signature 0, no partitions" blank state |
+| BitLocker status (read-only) | ✅ | Never unlocks, decrypts or reads keys |
+| Storage Spaces overview (read-only) | ✅ | Pool members stay protected |
+| Shrink blockers (Windows' minimum, page file, hibernation, shadow copies) with guidance | ✅ | Advice only; no automatic changes |
+| Technician reports (HTML / CSV / JSON) | ✅ | HTML escaped, CSV formula-safe, serials masked by default |
+| Assistant: multilingual intents → simulator-checked plans | ✅ | Never applies anything |
+| Optional AI planner (OpenAI-compatible, HTTPS, key from environment) | ✅ | Off by default; sends a layout summary without serials/file names; every step re-checked |
+| Command line: `op` (dry-run default; `--apply --confirm APPLY` through the engine), `report`, `vdisk` | ✅ | |
+| Licensing: signed license files, Free / Pro / Technician | ✅ | Safety/repair/recovery never gated; ships with a development key — see LICENSING.md |
+| Portable mode | ✅ | `portable` file beside the program → data in `.\Data` |
+| Windows Hello / domain / Entra account changes | 🚫 | Out of scope by design (Module 39 is guidance only) |
+
+## Phase 9 — Health, performance, monitoring
 
 | Feature | Status | Notes |
 |---|---|---|
