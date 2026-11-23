@@ -43,21 +43,9 @@ public static class BootToolsIntegrationTests
         Assert.True(b.Partitions.Contains((second.OffsetBytes, second.SizeBytes)), "backup has the deleted partition");
         var op = new RestoreTableOp(vd.Number, b.Folder, b.DiskSize, b.Serial, b.Model, b.Style, b.Partitions, b.Created);
         var r = await engine.ExecuteAsync(new DiskOperation[] { op }, await provider.GetInventoryAsync(), new ExecutionPolicy(false), "APPLY");
-        if (!r.Succeeded)
-        {
-            // diagnostics: what is on the disk, and does Windows catch up later?
-            var now = await vd.ReadAsync();
-            using var dev = new PhysicalDiskDevice(now, writable: false);
-            var head = new byte[34 * 512];
-            dev.Read(0, head);
-            var onDisk = Lasteast.Core.PartitionTables.PartitionTableCodec.ReadGpt(head, 512).Entries.Count;
-            // apply again directly and watch the disk
-            var trace = new List<string>();
-            int Entries() { var h2 = new byte[34 * 512]; dev.Read(0, h2); return Lasteast.Core.PartitionTables.PartitionTableCodec.ReadGpt(h2, 512).Entries.Count; }
-            DriveLayoutWriter.Apply(now, b);
-            for (int i = 0; i < 12; i++) { trace.Add($"{i * 500}ms:{Entries()}/{(await vd.ReadAsync()).Partitions.Count}"); await Task.Delay(500); }
-            throw new AssertionException($"{r.FailureKey} {r.FailureDetail} | entries on disk={onDisk} backup={b.Partitions.Count} windows-now={now.Partitions.Count} | reapply: {string.Join(" ", trace)}");
-        }
+        Assert.True(r.Succeeded, $"{r.FailureKey} {r.FailureDetail}");
+        Assert.True(r.Backups[0].Folder != b.Folder, "the pre-restore backup gets its own folder");
+        Assert.True(TableBackups.Load(b.Folder).Partitions.Count == b.Partitions.Count, "the restored backup was not overwritten");
 
         for (int i = 0; i < 20; i++)
         {

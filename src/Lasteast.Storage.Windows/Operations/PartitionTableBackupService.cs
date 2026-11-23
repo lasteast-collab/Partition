@@ -35,9 +35,7 @@ public sealed class PartitionTableBackupService : IPartitionTableBackup
     private BackupRecord Backup(DiskInfo disk, StorageInventory inventory)
     {
         if (disk.SizeBytes < 2UL * Chunk) throw new OperationFailedException("Exec.Error.Backup", "disk too small");
-        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        var folder = Path.Combine(_root, $"disk{disk.Number}-{stamp}");
-        Directory.CreateDirectory(folder);
+        var folder = NewFolder(_root, disk.Number);
 
         var files = new Dictionary<string, string>();
         using (var h = NativeMethods.CreateFile(disk.DevicePath, GENERIC_READ, NativeMethods.FILE_SHARE_READ | NativeMethods.FILE_SHARE_WRITE,
@@ -78,9 +76,24 @@ public sealed class PartitionTableBackupService : IPartitionTableBackup
         return buffer;
     }
 
+    /// <summary>A folder that did not exist before: backups never overwrite each other (two changes in the same second).</summary>
+    public static string NewFolder(string root, int disk)
+    {
+        Directory.CreateDirectory(root);
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
+        for (int i = 0; ; i++)
+        {
+            var folder = Path.Combine(root, i == 0 ? $"disk{disk}-{stamp}" : $"disk{disk}-{stamp}-{i}");
+            if (Directory.Exists(folder)) continue;
+            var info = Directory.CreateDirectory(folder);
+            if (info.EnumerateFileSystemInfos().Any()) continue;
+            return folder;
+        }
+    }
+
     private static string WriteVerified(string path, byte[] data)
     {
-        File.WriteAllBytes(path, data);
+        using (var fs = new FileStream(path, FileMode.CreateNew, FileAccess.Write)) fs.Write(data); // never overwrite
         var expected = Convert.ToHexString(SHA256.HashData(data));
         var actual = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
         if (expected != actual) throw new OperationFailedException("Exec.Error.Backup", $"verification failed for {path}");
