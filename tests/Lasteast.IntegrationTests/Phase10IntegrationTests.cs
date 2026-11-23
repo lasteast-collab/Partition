@@ -39,8 +39,12 @@ public static class Phase10IntegrationTests
 
             var engine = new GuardedExecutionEngine(provider, new WindowsOperationExecutor(provider, log, Path.Combine(dir, "journal")),
                 new PartitionTableBackupService(Path.Combine(dir, "backups")), priv, new JsonlOperationHistory(Path.Combine(dir, "h.jsonl")), log);
-            var r = await engine.ExecuteAsync(new DiskOperation[] { new InitializeDiskOp(disk!.Number, PartitionStyle.Gpt) }, await provider.GetInventoryAsync(), new ExecutionPolicy(false), "APPLY");
-            Assert.True(r.Succeeded, $"initialize: {r.FailureKey} {r.FailureDetail}");
+            var inv0 = await provider.GetInventoryAsync();
+            var d0 = inv0.Disks.First(x => x.Number == disk!.Number);
+            var sim0 = LayoutSimulator.Simulate(d0, new DiskOperation[] { new InitializeDiskOp(d0.Number, PartitionStyle.Gpt) });
+            var diag = $"style={d0.Style} parts={d0.Partitions.Count} [{string.Join(";", d0.Partitions.Select(p => $"{p.OffsetBytes}+{p.SizeBytes}:{p.Role}"))}] issues=[{string.Join(",", sim0.AllIssues.Select(i => i.Key))}]";
+            var r = await engine.ExecuteAsync(new DiskOperation[] { new InitializeDiskOp(disk!.Number, PartitionStyle.Gpt) }, inv0, new ExecutionPolicy(false), "APPLY");
+            Assert.True(r.Succeeded, $"initialize: {r.FailureKey} {r.FailureDetail} {diag}");
             var inv = await provider.GetInventoryAsync();
             var d = inv.Disks.First(x => x.Number == disk.Number);
             Assert.Equal(PartitionStyle.Gpt, d.Style);
