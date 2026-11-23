@@ -77,8 +77,15 @@ public static class RecoveryIntegrationTests
         var disk = await vd.ReadAsync();
         Assert.Equal(0, disk.Partitions.Count);
         IReadOnlyList<FoundPartition> found;
+        string diag;
         using (var dev = new PhysicalDiskDevice(disk, writable: false))
+        {
             found = LostPartitionScanner.Scan(dev, Array.Empty<(ulong, ulong)>(), LostScanMode.Quick, null, CancellationToken.None);
+            var bs = new byte[512];
+            dev.Read((long)p.OffsetBytes, bs);
+            diag = $"ss={dev.SectorSize} len={dev.Length} off={p.OffsetBytes} size={p.SizeBytes} bs={Convert.ToHexString(bs.AsSpan(0, 0x50))}..{bs[510]:X2}{bs[511]:X2} found=[{string.Join(";", found.Select(x => $"{x.FileSystem}@{x.OffsetBytes}+{x.SizeBytes}"))}]";
+        }
+        Assert.True(found.Count(x => x.FileSystem == "NTFS") == 1, diag);
         var f = found.Single(x => x.FileSystem == "NTFS");
         Assert.Equal(p.OffsetBytes, f.OffsetBytes);
         Assert.Equal(p.SizeBytes, f.SizeBytes);

@@ -59,7 +59,23 @@ public sealed class PhysicalDiskDevice : IBlockDevice
     public long Length { get; }
     public int SectorSize { get; }
 
+    /// <summary>Disk handles only accept sector-aligned offsets and lengths; unaligned reads go through a bounce buffer.</summary>
     public void Read(long offset, Span<byte> buffer)
+    {
+        if (buffer.Length == 0) return;
+        if (offset % SectorSize == 0 && buffer.Length % SectorSize == 0)
+        {
+            ReadAligned(offset, buffer);
+            return;
+        }
+        long start = offset / SectorSize * SectorSize;
+        long end = (offset + buffer.Length + SectorSize - 1) / SectorSize * SectorSize;
+        var bounce = new byte[end - start];
+        ReadAligned(start, bounce);
+        bounce.AsSpan((int)(offset - start), buffer.Length).CopyTo(buffer);
+    }
+
+    private void ReadAligned(long offset, Span<byte> buffer)
     {
         int total = 0;
         while (total < buffer.Length)
@@ -73,6 +89,7 @@ public sealed class PhysicalDiskDevice : IBlockDevice
     public void Write(long offset, ReadOnlySpan<byte> buffer)
     {
         if (!_writable) throw new InvalidOperationException("device opened read-only");
+        if (offset % SectorSize != 0 || buffer.Length % SectorSize != 0) throw new ArgumentException($"unaligned write at {offset} ({buffer.Length} bytes)");
         RandomAccess.Write(_h, buffer, offset);
     }
 
