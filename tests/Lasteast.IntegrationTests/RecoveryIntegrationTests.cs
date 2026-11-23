@@ -28,8 +28,14 @@ public static class RecoveryIntegrationTests
         var root = $"{letter}:\\";
         var data = RandomNumberGenerator.GetBytes(2 * 1024 * 1024 + 123);
         Directory.CreateDirectory(root + @"Projects\Alpha");
-        File.WriteAllBytes(root + @"Projects\Alpha\report.bin", data);
+        // files that existed for a while: their data is on disk (deleting a never-flushed file discards its cached data)
+        using (var fs = new FileStream(root + @"Projects\Alpha\report.bin", FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+        {
+            fs.Write(data);
+            fs.Flush(flushToDisk: true);
+        }
         File.WriteAllText(root + "note.txt", "small note");
+        VolumeLocks.Acquire(new[] { (await vd.ReadAsync()).Partitions.Single(p => p.Volume?.Label == "LE-UNDEL").Volume!.VolumeGuidPath }, dismount: true).Dispose();
         File.WriteAllText(root + "keep.txt", "keep");
         File.Delete(root + @"Projects\Alpha\report.bin");
         File.Delete(root + "note.txt");

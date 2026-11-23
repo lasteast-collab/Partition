@@ -96,6 +96,11 @@ public static class LostPartitionScanner
             for (long p = MiB; p < disk.Length; p += MiB) positions.Add(p);
             for (long cyl = 63; cyl * ss < disk.Length; cyl += 255 * 63) positions.Add(cyl * ss); // legacy CHS alignment
             positions.Add(63L * ss);
+            // partitions usually start shortly after the start of a free region (64 KiB / 4 KiB alignments, e.g. diskpart on small disks)
+            var gapStarts = new[] { 0L }.Concat(existing.Select(e => (long)(e.Offset + e.Size))).Distinct();
+            foreach (var g in gapStarts)
+                for (long p = (g + 4095) / 4096 * 4096; p < Math.Min(disk.Length, g + 16 * MiB); p += 4096)
+                    if (p > 0) positions.Add(p);
             long done = 0;
             foreach (var p in positions)
             {
