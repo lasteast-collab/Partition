@@ -3,11 +3,23 @@
 Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not be built (see note)
 
 > **Build verification.** Every push is built and tested on GitHub Actions (`windows-latest`): the full solution
-> including the WPF app, 89 unit tests, and integration tests that run the real engine as administrator against
+> including the WPF app, 97 unit tests, and integration tests that run the real engine as administrator against
 > freshly created VHDX virtual disks (create/format/resize/label/letter, MBR↔GPT conversion, partition move,
-> disk clone) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
+> disk clone, bcdboot onto an ESP, offline registry edit) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
 
-## Phase 5 — Conversion, move, clone  (this build)
+## Phase 6 — OS migration  (this build)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Detect the system partitions (ESP, MSR, Windows, Recovery; BIOS: active + Windows) | ✅ | |
+| Fit check: as is / after preparation / too small | ✅ | Preparation = Windows' own shrink of C: + moving Recovery behind it; a separate, reviewed step |
+| Copy with the same IDs ("replace the old disk") | ✅ | Used-space clone of the system partitions, SHA-256 verified, Windows read through VSS |
+| Copy with new IDs ("keep both disks") + boot files (bcdboot) + the copy's own C: (offline MountedDevices) | ✅ | Refuses to ever edit the running system's hive |
+| Next steps and troubleshooting guidance (firmware mode, BitLocker key, storage driver, rescue) | ✅ | |
+| Full end-to-end migration of a real Windows disk | 🟡 | Every part runs in CI (clone, bcdboot onto a VHDX ESP, offline hive edit); a whole migration of a running Windows to a second disk has not been run in CI (the runner's system disk is not ours to copy) |
+| Migrating when other partitions sit between the system partitions | ⏳ | Refused with an explanation |
+
+## Phase 5 — Conversion, move, clone
 
 | Feature | Status | Notes |
 |---|---|---|
