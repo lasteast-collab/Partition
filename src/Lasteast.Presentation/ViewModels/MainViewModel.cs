@@ -66,7 +66,8 @@ public sealed class MainViewModel : ObservableObject
         Core.Cleanup.IFileRemover? remover = null, IReadOnlyList<Core.Cleanup.CleanupTarget>? cleanupTargets = null,
         DiskReader? diskReader = null, Core.Boot.IBootTools? bootTools = null, Core.Boot.IRescueMediaBuilder? rescueBuilder = null,
         string? tableBackupRoot = null, Core.Health.IDiskHealthProvider? healthProvider = null,
-        Core.Info.IVirtualDiskManager? virtualDisks = null, Core.Info.ISystemInfoProvider? systemInfo = null, Core.Licensing.LicenseStore? licenses = null)
+        Core.Info.IVirtualDiskManager? virtualDisks = null, Core.Info.ISystemInfoProvider? systemInfo = null, Core.Licensing.LicenseStore? licenses = null,
+        Core.Abstractions.IFileSystemTools? fsTools = null)
     {
         _ui = SynchronizationContext.Current;
         _provider = provider;
@@ -76,7 +77,7 @@ public sealed class MainViewModel : ObservableObject
         AppSettings = settings;
 
         Queue = new OperationQueue();
-        Dashboard = new DashboardViewModel(Queue);
+        Dashboard = new DashboardViewModel(Queue, new EditorServices(shell, fsTools));
         PendingPage = new PendingPageViewModel(Queue, engine, privileges, RefreshAsync);
         DisksPage = new DisksPageViewModel();
         PartitionsPage = new PartitionsPageViewModel();

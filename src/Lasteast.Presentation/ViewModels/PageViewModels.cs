@@ -44,9 +44,12 @@ public sealed class DashboardViewModel : PageViewModel
     public RelayCommand SelectSegmentCommand { get; }
     public ObservableCollection<ActionItem> Actions { get; } = new();
 
-    public DashboardViewModel(OperationQueue? queue = null)
+    private readonly EditorServices _services;
+
+    public DashboardViewModel(OperationQueue? queue = null, EditorServices? services = null)
     {
         _queue = queue ?? new OperationQueue();
+        _services = services ?? new EditorServices();
         SelectSegmentCommand = new RelayCommand(o => Select(o as SegmentViewModel));
     }
 
@@ -62,7 +65,7 @@ public sealed class DashboardViewModel : PageViewModel
     public void OpenEditor(EditorMode mode)
     {
         if (_selected is null) return;
-        Editor = new OperationEditorViewModel(mode, _selected, _queue, () => Editor = null);
+        Editor = new OperationEditorViewModel(mode, _selected, _queue, () => Editor = null, _services);
     }
 
     private void BuildActions()
@@ -73,10 +76,20 @@ public sealed class DashboardViewModel : PageViewModel
         void A(EditorMode m, string glyph, bool destructive = false) =>
             Actions.Add(new ActionItem(L("Action." + m), glyph, destructive, new RelayCommand(() => OpenEditor(m))));
         var style = _selected.Disk.Disk.Style;
+        var disk = _selected.Disk.Disk;
         void Convert()
         {
             if (style == PartitionStyle.Mbr) A(EditorMode.ConvertToGpt, "\uE8AB");
             else if (style == PartitionStyle.Gpt) A(EditorMode.ConvertToMbr, "\uE8AB");
+        }
+        void DiskLevel()
+        {
+            if (!disk.IsWindowsDisk && !disk.IsBootDisk)
+            {
+                if (!disk.IsExternal) A(disk.IsDynamic ? EditorMode.ToBasic : EditorMode.ToDynamic, "\uE8AB");
+                if (disk.Media == MediaKind.Ssd || disk.Bus == BusKind.Nvme) A(EditorMode.Sanitize, "\uE74D", destructive: true);
+                A(EditorMode.WipeDisk, "\uE74D", destructive: true);
+            }
         }
         if (LayoutSimulator.IsUninitialized(_selected.Disk.Disk))
         {
@@ -98,8 +111,23 @@ public sealed class DashboardViewModel : PageViewModel
         A(part.IsHidden ? EditorMode.Unhide : EditorMode.Hide, part.IsHidden ? "\uE7B3" : "\uED1A");
         if (style == PartitionStyle.Mbr && !part.MbrActive) A(EditorMode.SetActive, "\uE7E8");
         A(EditorMode.SetType, "\uE8EC");
+        if (part.Volume?.DriveLetter is not null) A(EditorMode.Explore, "\uE838");
+        if (part.Volume is { AccessError: null, FileSystem: not null })
+        {
+            A(EditorMode.CheckFs, "\uE9D5");
+            A(EditorMode.RepairFs, "\uE90F");
+            A(EditorMode.Split, "\uE8C6");
+            if (disk.Partitions.Any(x => x.OffsetBytes >= part.EndBytes && x.Role != PartitionRole.MbrExtended)) A(EditorMode.Merge, "\uE71B");
+            if (part.Volume.FileSystem is "FAT32" or "FAT") A(EditorMode.ToNtfs, "\uE8AB");
+            A(EditorMode.Reformat, "\uE8AB", destructive: true);
+        }
+        A(EditorMode.Copy, "\uE8C8");
+        if (part.Alignment == AlignmentStatus.Misaligned) A(EditorMode.Align, "\uE7C2");
+        if (style == PartitionStyle.Mbr) A(part.Role == PartitionRole.MbrLogical ? EditorMode.ToPrimary : EditorMode.ToLogical, "\uE8AB");
         Convert();
+        DiskLevel();
         A(EditorMode.Format, "\uE7A8", destructive: true);
+        A(EditorMode.Wipe, "\uE74D", destructive: true);
         A(EditorMode.Delete, "\uE74D", destructive: true);
     }
 

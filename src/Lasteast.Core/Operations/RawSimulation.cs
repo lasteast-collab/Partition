@@ -74,8 +74,9 @@ public static partial class LayoutSimulator
         if (m.NewOffsetBytes % MiB != 0) return Fail(issues, "Op.Error.Granularity", d);
         var fs = target.Volume?.FileSystem;
         bool movableFs = fs is null || fs.Equals("NTFS", StringComparison.OrdinalIgnoreCase) || fs.Equals("FAT32", StringComparison.OrdinalIgnoreCase)
-                         || fs.Equals("FAT", StringComparison.OrdinalIgnoreCase) || fs.Equals("RAW", StringComparison.OrdinalIgnoreCase);
-        // exFAT and ReFS record their own position in ways we do not patch; refuse instead of guessing.
+                         || fs.Equals("FAT", StringComparison.OrdinalIgnoreCase) || fs.Equals("RAW", StringComparison.OrdinalIgnoreCase)
+                         || fs.Equals("exFAT", StringComparison.OrdinalIgnoreCase); // its PartitionOffset field and checksums are rewritten
+        // ReFS's on-disk position records are not documented well enough to patch safely; refuse instead of guessing.
         if (!movableFs) return Fail(issues, "Move.Error.FileSystem", d, fs ?? "?");
 
         // The new range must lie in free space plus the partition's own current range.

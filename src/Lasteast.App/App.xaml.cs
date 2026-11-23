@@ -60,7 +60,8 @@ public partial class App : Application
             demo ? null : new Lasteast.Storage.Windows.Health.WindowsHealthProvider(_log),
             demo ? null : new Lasteast.Storage.Windows.Info.WindowsVirtualDiskManager(),
             demo ? null : new Lasteast.Storage.Windows.Info.WindowsSystemInfo(_log),
-            new Lasteast.Core.Licensing.LicenseStore());
+            new Lasteast.Core.Licensing.LicenseStore(),
+            demo ? null : new Lasteast.Storage.Windows.Operations.WindowsFileSystemTools());
         var window = new MainWindow(vm, theme);
         vm.RequestShutdown += (_, _) => Shutdown();
         MainWindow = window;

@@ -5,6 +5,7 @@ using Lasteast.Core.Models;
 using Lasteast.Core.Operations;
 using Lasteast.Core.Settings;
 using Lasteast.Presentation.Mvvm;
+using Lasteast.Presentation.Services;
 using static Lasteast.Presentation.ViewModels.Text;
 
 namespace Lasteast.Presentation.ViewModels;
@@ -46,8 +47,25 @@ public static class OperationText
             SetDriveLetterOp s => s.Letter is { } nl
                 ? Loc.Instance.Format("OpText.Letter", Target(s.OffsetBytes), $"{nl}:", disk)
                 : Loc.Instance.Format("OpText.RemoveLetter", Target(s.OffsetBytes), disk),
+            CopyFilesOp cf => Loc.Instance.Format("OpText.CopyFiles", TargetOn(inv, cf.SourceDiskNumber, cf.SourceOffsetBytes), Target(cf.DestOffsetBytes), cf.Folder),
+            CopyPartitionOp cp => Loc.Instance.Format("OpText.CopyPartition", TargetOn(inv, cp.SourceDiskNumber, cp.SourceOffsetBytes), disk, Size(cp.DestOffsetBytes)),
+            WipeOp { OffsetBytes: { } wo } w => Loc.Instance.Format("OpText.WipePartition", Target(wo), disk, L("Wipe.Method." + w.Method)),
+            WipeOp w => Loc.Instance.Format("OpText.WipeDisk", disk, L("Wipe.Method." + w.Method)),
+            SanitizeDiskOp => Loc.Instance.Format("OpText.Sanitize", disk),
+            RepairFileSystemOp rf => Loc.Instance.Format("OpText.RepairFs", Target(rf.OffsetBytes), disk),
+            ConvertFileSystemOp cv => Loc.Instance.Format("OpText.ConvertFs", Target(cv.OffsetBytes), cv.TargetFileSystem, disk),
+            ReformatKeepingFilesOp rk => Loc.Instance.Format("OpText.Reformat", Target(rk.OffsetBytes), rk.FileSystem,
+                rk.ClusterSizeBytes is { } cs ? Size((ulong)cs) : L("Editor.ClusterDefault"), rk.StagingFolder),
+            ConvertDiskTypeOp dt => Loc.Instance.Format(dt.ToDynamic ? "OpText.ToDynamic" : "OpText.ToBasic", disk),
+            ConvertPartitionKindOp pk => Loc.Instance.Format(pk.ToLogical ? "OpText.ToLogical" : "OpText.ToPrimary", Target(pk.OffsetBytes), disk),
             _ => op.ToString(),
         };
+    }
+
+    private static string TargetOn(StorageInventory? inv, int diskNumber, ulong offset)
+    {
+        var p = inv?.Disks.FirstOrDefault(d => d.Number == diskNumber)?.Partitions.FirstOrDefault(x => x.OffsetBytes == offset);
+        return $"{L("Common.Disk")} {diskNumber} · " + (p is null ? $"@{Size(offset)}" : PartitionTitle(p) + (p.Volume?.Label is { Length: > 0 } l ? $" \"{l}\"" : ""));
     }
 }
 
@@ -75,13 +93,26 @@ public sealed record TypeChoice(string Name, Guid? Gpt, byte? Mbr)
 
 public sealed record ActionItem(string Title, string Glyph, bool IsDestructive, RelayCommand Command);
 
-public enum EditorMode { Create, Resize, Format, Label, Letter, Delete, Move, ConvertToGpt, ConvertToMbr, InitGpt, InitMbr, SetActive, Hide, Unhide, SetType }
+public enum EditorMode
+{
+    Create, Resize, Format, Label, Letter, Delete, Move, ConvertToGpt, ConvertToMbr, InitGpt, InitMbr, SetActive, Hide, Unhide, SetType,
+    Merge, Split, Copy, Wipe, CheckFs, RepairFs, ToNtfs, Reformat, ToLogical, ToPrimary, Align, Explore, WipeDisk, Sanitize, ToDynamic, ToBasic,
+}
+
+/// <summary>A pick-list entry for editor fields (merge partner, copy destination, wipe method, cluster size …).</summary>
+public sealed record ChoiceItem(string Title, object? Value)
+{
+    public override string ToString() => Title;
+}
+
+/// <summary>What the editor may use besides the queue: dialogs, read-only checks.</summary>
+public sealed record EditorServices(IShellService? Shell = null, Core.Abstractions.IFileSystemTools? FsTools = null);
 
 /// <summary>
 /// Inline editor for one operation on the selected segment. Every change re-validates against the
 /// queue (same simulator the engine uses), so the user sees errors before adding anything.
 /// </summary>
-public sealed class OperationEditorViewModel : ObservableObject
+public sealed partial class OperationEditorViewModel : ObservableObject
 {
     private readonly OperationQueue _queue;
     private readonly SegmentViewModel _segment;
@@ -93,14 +124,22 @@ public sealed class OperationEditorViewModel : ObservableObject
     private string? _addedText;
     private string _offsetText = "";
 
-    public OperationEditorViewModel(EditorMode mode, SegmentViewModel segment, OperationQueue queue, Action close)
+    private readonly EditorServices _services;
+    private ChoiceItem? _choice, _choice2;
+    private string _text = "";
+    private bool _check = true;
+    private string? _toolOutput;
+
+    public OperationEditorViewModel(EditorMode mode, SegmentViewModel segment, OperationQueue queue, Action close, EditorServices? services = null)
     {
         Mode = mode;
         _segment = segment;
         _queue = queue;
         _close = close;
+        _services = services ?? new EditorServices();
         var p = segment.Partition;
         var disk = segment.Disk.Disk;
+        SetupExtended(mode, p, disk);
 
         switch (mode)
         {
@@ -134,23 +173,25 @@ public sealed class OperationEditorViewModel : ObservableObject
         MoveToStartCommand = new RelayCommand(() => OffsetText = Mib(MinBytes));
         MoveToEndCommand = new RelayCommand(() => OffsetText = Mib(MaxBytes));
 
-        AddCommand = new RelayCommand(Add, () => BuildOperation() is not null && Issues.All(i => !i.IsError));
+        AddCommand = new RelayCommand(Add, () => !IsTool && BuildOperations() is not null && Issues.All(i => !i.IsError));
+        RunToolCommand = new AsyncRelayCommand(RunToolAsync, ex => ToolOutput = ErrorText(ex));
+        BrowseCommand = new RelayCommand(() => { if (_services.Shell?.PickFolder() is { } f) TextValue = f; });
         CancelCommand = new RelayCommand(_close);
         Revalidate();
     }
 
     public EditorMode Mode { get; }
     public string Title => L("Action." + Mode);
-    public bool ShowSize => Mode is EditorMode.Create or EditorMode.Resize;
-    public bool ShowFileSystem => Mode is EditorMode.Create or EditorMode.Format;
-    public bool ShowLabel => Mode is EditorMode.Create or EditorMode.Format or EditorMode.Label;
-    public bool ShowLetter => Mode is EditorMode.Create or EditorMode.Letter;
+    public bool ShowSize => Mode is EditorMode.Create or EditorMode.Resize or EditorMode.Split;
+    public bool ShowFileSystem => Mode is EditorMode.Create or EditorMode.Format or EditorMode.Split;
+    public bool ShowLabel => Mode is EditorMode.Create or EditorMode.Format or EditorMode.Label or EditorMode.Split;
+    public bool ShowLetter => Mode is EditorMode.Create or EditorMode.Letter or EditorMode.Split;
     public bool ShowOffset => Mode is EditorMode.Move;
     public bool ShowType => Mode is EditorMode.SetType;
     private TypeChoice? _typeChoice;
     public IReadOnlyList<TypeChoice> TypeOptions => _segment.Disk.Disk.Style == PartitionStyle.Gpt ? TypeChoice.GptTypes : TypeChoice.MbrTypes;
     public TypeChoice? SelectedType { get => _typeChoice; set { if (Set(ref _typeChoice, value)) Revalidate(); } }
-    public bool IsDestructive => Mode is EditorMode.Delete or EditorMode.Format;
+    public bool IsDestructive => Mode is EditorMode.Delete or EditorMode.Format or EditorMode.Wipe or EditorMode.WipeDisk or EditorMode.Sanitize or EditorMode.Reformat or EditorMode.Merge;
     public string OffsetText { get => _offsetText; set { if (Set(ref _offsetText, value)) Revalidate(); } }
     public RelayCommand MoveToStartCommand { get; }
     public RelayCommand MoveToEndCommand { get; }
@@ -171,8 +212,9 @@ public sealed class OperationEditorViewModel : ObservableObject
     }
 
     private static string Mib(ulong bytes) => (bytes / LayoutSimulator.MiB).ToString(CultureInfo.CurrentCulture);
-    public ulong MinBytes { get; }
-    public ulong MaxBytes { get; }
+    private readonly ulong _minBytes, _maxBytes;
+    public ulong MinBytes { get => MinBytesOverride ?? _minBytes; private init => _minBytes = value; }
+    public ulong MaxBytes { get => MaxBytesOverride ?? _maxBytes; private init => _maxBytes = value; }
     public string RangeText => ShowSize ? Loc.Instance.Format("Editor.Range", Size(MinBytes), Size(Math.Max(MinBytes, MaxBytes))) : "";
     public string TargetText => _segment.Partition is { } p ? $"{_segment.Title} — {_segment.SizeText} {_segment.FileSystemText}" : $"{L("Seg.Unallocated")} — {_segment.SizeText}";
 
@@ -211,7 +253,15 @@ public sealed class OperationEditorViewModel : ObservableObject
         return null;
     }
 
-    public DiskOperation? BuildOperation()
+    public DiskOperation? BuildOperation() => BuildOperations()?.LastOrDefault();
+
+    public IReadOnlyList<DiskOperation>? BuildOperations()
+    {
+        if (BuildExtended() is { } ext) return ext.Count == 0 ? null : ext;
+        return BuildSingle() is { } one ? new[] { one } : null;
+    }
+
+    private DiskOperation? BuildSingle()
     {
         var disk = _segment.Disk.Number;
         var p = _segment.Partition;
@@ -249,19 +299,32 @@ public sealed class OperationEditorViewModel : ObservableObject
     private void Revalidate()
     {
         Issues.Clear();
-        var op = BuildOperation();
-        if (op is null)
-            Issues.Add(new IssueViewModel(L(Mode == EditorMode.Move ? "Editor.InvalidOffset" : "Editor.InvalidSize"), true));
+        OnPropertyChanged(nameof(SliderValue));
+        if (IsTool) { AddCommand?.RaiseCanExecuteChanged(); return; }
+        foreach (var pre in PreChecks()) Issues.Add(new IssueViewModel(pre, true));
+        var ops = BuildOperations();
+        if (ops is null)
+        {
+            if (Issues.Count == 0) Issues.Add(new IssueViewModel(L(Mode switch
+            {
+                EditorMode.Move => "Editor.InvalidOffset",
+                EditorMode.Merge or EditorMode.Copy => "Editor.PickTarget",
+                EditorMode.Align => "Editor.CannotAlign",
+                EditorMode.WipeDisk or EditorMode.Sanitize => "Editor.TypeSerial",
+                EditorMode.Reformat => "Editor.PickStaging",
+                _ => "Editor.InvalidSize",
+            }), true));
+        }
         else
-            foreach (var i in _queue.Preview(op)) Issues.Add(new IssueViewModel(OperationText.Issue(i), i.IsError));
+            foreach (var i in _queue.PreviewAll(ops)) Issues.Add(new IssueViewModel(OperationText.Issue(i), i.IsError));
         AddCommand?.RaiseCanExecuteChanged();
     }
 
     private void Add()
     {
-        var op = BuildOperation();
-        if (op is null) return;
-        var result = _queue.TryAdd(op);
+        var ops = BuildOperations();
+        if (ops is null || PreChecks().Any()) return;
+        var result = _queue.TryAddAll(ops);
         if (result.Any(i => i.IsError))
         {
             Issues.Clear();
@@ -274,7 +337,8 @@ public sealed class OperationEditorViewModel : ObservableObject
 
 // ---------------------------------------------------------------------------------------------
 
-public sealed record PendingItem(int Index, string Text, string DiskText, bool DestroysData, RelayCommand RemoveCommand);
+public sealed record PendingItem(int Index, string Text, string DiskText, bool DestroysData, RelayCommand RemoveCommand,
+    RelayCommand? MoveUpCommand = null, RelayCommand? MoveDownCommand = null);
 
 public sealed record DiskPreview(string Title, DiskViewModel Before, DiskViewModel After, string Summary, IReadOnlyList<IssueViewModel> Issues, bool DestroysData, string IdentityText);
 
@@ -317,6 +381,10 @@ public sealed class PendingPageViewModel : PageViewModel
     public RelayCommand ClearCommand { get; }
     public RelayCommand DismissReportCommand { get; }
 
+    private string? _moveStatus;
+    /// <summary>Why a reorder was refused (the new order would not validate).</summary>
+    public string? Status { get => _moveStatus; private set { Set(ref _moveStatus, value); OnPropertyChanged(nameof(HasStatus)); } }
+    public bool HasStatus => !string.IsNullOrEmpty(_moveStatus);
     public bool IsEmpty => _queue.Count == 0;
     public bool HasItems => _queue.Count > 0;
     public string ConfirmationWord => GuardedExecutionEngine.ConfirmationWord;
@@ -367,7 +435,10 @@ public sealed class PendingPageViewModel : PageViewModel
             var op = _queue.Items[i];
             int index = i;
             Items.Add(new PendingItem(i + 1, OperationText.Describe(op, inv), $"{L("Common.Disk")} {op.DiskNumber}", op.DestroysData,
-                new RelayCommand(() => _queue.RemoveAt(index), () => !_running)));
+                new RelayCommand(() => _queue.RemoveAt(index), () => !_running),
+                // reordering is allowed only when the new order still validates
+                new RelayCommand(() => { if (!_queue.Move(index, -1)) Status = L("Pending.CannotMove"); }, () => !_running && index > 0),
+                new RelayCommand(() => { if (!_queue.Move(index, +1)) Status = L("Pending.CannotMove"); }, () => !_running && index < _queue.Count - 1)));
         }
 
         Previews.Clear();

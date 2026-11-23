@@ -64,6 +64,47 @@ public sealed class OperationQueue
         return sim?.Steps[^1].Issues ?? new[] { new ValidationIssue(IssueLevel.Error, "Op.Error.NotFound") };
     }
 
+    /// <summary>Issues of a group of operations appended together (a merge or split): all of their issues, nothing changed.</summary>
+    public IReadOnlyList<ValidationIssue> PreviewAll(IReadOnlyList<DiskOperation> ops)
+    {
+        if (_base is null) return new[] { new ValidationIssue(IssueLevel.Error, "Op.Error.NoInventory") };
+        if (_base.IsSampleData) return new[] { new ValidationIssue(IssueLevel.Error, "Op.Error.SampleData") };
+        var all = _items.Concat(ops).ToList();
+        var issues = new List<ValidationIssue>();
+        foreach (var n in ops.Select(o => o.DiskNumber).Distinct())
+        {
+            var sim = SimulateDisk(n, all);
+            if (sim is null) return new[] { new ValidationIssue(IssueLevel.Error, "Op.Error.NotFound") };
+            foreach (var st in sim.Steps.Where(st => ops.Any(o => ReferenceEquals(o, st.Operation)))) issues.AddRange(st.Issues);
+        }
+        return issues;
+    }
+
+    /// <summary>Appends a group atomically: all or nothing.</summary>
+    public IReadOnlyList<ValidationIssue> TryAddAll(IReadOnlyList<DiskOperation> ops)
+    {
+        var issues = PreviewAll(ops);
+        if (issues.Any(i => i.IsError)) return issues;
+        _items.AddRange(ops);
+        Changed?.Invoke(this, EventArgs.Empty);
+        return issues;
+    }
+
+    /// <summary>Moves a pending operation one place earlier/later when the new order still validates.</summary>
+    public bool Move(int index, int delta)
+    {
+        int j = index + delta;
+        if (index < 0 || index >= _items.Count || j < 0 || j >= _items.Count) return false;
+        (_items[index], _items[j]) = (_items[j], _items[index]);
+        if (_base is not null && SimulateAll().Any(s => !s.IsValid))
+        {
+            (_items[index], _items[j]) = (_items[j], _items[index]);
+            return false;
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
     public void RemoveAt(int index)
     {
         if (index < 0 || index >= _items.Count) return;

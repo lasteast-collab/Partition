@@ -431,15 +431,28 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
         _log = log ?? NullLog.Instance;
         _boot = new BootPreparer(log);
         _raw = new RawDiskExecutor(inventory, log, journalDir);
+        _ext = new ExtendedExecutor(inventory, _wmi, _log);
     }
+
+    private readonly ExtendedExecutor _ext;
 
     /// <summary>Progress of long raw steps (copy/verify), for the progress bar.</summary>
     public IProgress<RawProgress>? RawProgress { get; set; }
 
     public async Task ExecuteAsync(Lasteast.Core.Operations.DiskOperation operation, DiskInfo liveDisk, CancellationToken cancellationToken)
     {
+        _ext.Progress = RawProgress;
         switch (operation)
         {
+            case Lasteast.Core.Operations.CopyFilesOp cf: await _ext.CopyFilesAsync(cf, liveDisk, cancellationToken); return;
+            case Lasteast.Core.Operations.CopyPartitionOp cp: await _ext.CopyPartitionAsync(cp, liveDisk, cancellationToken); return;
+            case Lasteast.Core.Operations.WipeOp w: await _ext.WipeAsync(w, liveDisk, cancellationToken); await Task.Delay(2000, CancellationToken.None); return;
+            case Lasteast.Core.Operations.SanitizeDiskOp: await _ext.SanitizeAsync(liveDisk); await Task.Delay(2000, CancellationToken.None); return;
+            case Lasteast.Core.Operations.RepairFileSystemOp rf: await _ext.RepairFileSystemAsync(rf, liveDisk); return;
+            case Lasteast.Core.Operations.ConvertFileSystemOp cv: await _ext.ConvertFileSystemAsync(cv, liveDisk); await Task.Delay(1500, CancellationToken.None); return;
+            case Lasteast.Core.Operations.ReformatKeepingFilesOp rk: await _ext.ReformatKeepingFilesAsync(rk, liveDisk, cancellationToken); return;
+            case Lasteast.Core.Operations.ConvertDiskTypeOp dt: await _ext.ConvertDiskTypeAsync(dt, liveDisk); await Task.Delay(2000, CancellationToken.None); return;
+            case Lasteast.Core.Operations.ConvertPartitionKindOp pk: await _ext.ConvertPartitionKindAsync(pk, liveDisk); await Task.Delay(2000, CancellationToken.None); return;
             case Lasteast.Core.Operations.ConvertStyleOp c:
                 await Raw(() => _raw.ConvertStyle(liveDisk, c.Target));
                 break;

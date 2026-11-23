@@ -1,3 +1,4 @@
+using Lasteast.Core.Operations;
 using Lasteast.Core.Abstractions;
 using Lasteast.Core.Localization;
 using Lasteast.Core.Logging;
@@ -58,6 +59,39 @@ public static class OperationUiTests
         Assert.Equal(3, preview.Before.Segments.Count);
         Assert.Equal(4, preview.After.Segments.Count); // D:, new, remaining free, E:
         Assert.True(preview.After.Segments.Any(s => s.IsPending));
+    }
+
+    [Test]
+    public static async Task Merge_split_and_wipe_editors_queue_validated_groups()
+    {
+        var vm = await Create();
+        var d = vm.Dashboard.Disks[1].Segments.First(s => !s.IsUnallocated);
+        vm.Dashboard.Select(d);
+        Assert.True(vm.Dashboard.Actions.Any(a => a.Title == "Merge with next") && vm.Dashboard.Actions.Any(a => a.Title == "Split"));
+        vm.Dashboard.OpenEditor(EditorMode.Merge);
+        var merge = vm.Dashboard.Editor!;
+        Assert.True(merge.SelectedChoice is not null, "merge partner offered");
+        var ops = merge.BuildOperations()!;
+        Assert.True(ops.Count == 3 && ops[0] is CopyFilesOp && ops[1] is DeletePartitionOp && ops[2] is ResizePartitionOp);
+        Assert.True(merge.Issues.All(i => !i.IsError), string.Join("; ", merge.Issues.Select(i => i.Text)));
+        merge.AddCommand.Execute(null);
+        Assert.Equal(3, vm.Queue.Count);
+        // reordering that would break the dependency is refused
+        Assert.True(!vm.Queue.Move(2, -1), "resize cannot run before the delete");
+        vm.Queue.Clear();
+
+        vm.Dashboard.Select(d);
+        vm.Dashboard.OpenEditor(EditorMode.Split);
+        var split = vm.Dashboard.Editor!;
+        Assert.True(split.ShowSlider);
+        split.SliderValue = split.SliderMax;
+        Assert.True(split.BuildOperations()!.Count == 2);
+
+        vm.Dashboard.Select(d);
+        vm.Dashboard.OpenEditor(EditorMode.WipeDisk);
+        var wipe = vm.Dashboard.Editor!;
+        Assert.True(!wipe.AddCommand.CanExecute(null), "serial confirmation required");
+        Assert.True(wipe.Issues.Any(i => i.IsError));
     }
 
     [Test]

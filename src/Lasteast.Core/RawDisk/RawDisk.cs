@@ -470,6 +470,30 @@ public static class PartitionMover
     }
 
     /// <summary>NTFS and FAT boot sectors record the partition's start LBA ("hidden sectors", offset 0x1C).</summary>
+    /// <summary>
+    /// exFAT records its partition offset (in sectors) in the main and backup boot regions, each protected by a
+    /// checksum in its 12th sector: both fields and both checksums are rewritten.
+    /// </summary>
+    public static void PatchExfatOffset(IBlockDevice dev, long partitionOffset)
+    {
+        int ss = dev.SectorSize;
+        foreach (long region in new[] { 0L, 12L })
+        {
+            var r = new byte[12 * ss];
+            dev.Read(partitionOffset + region * ss, r);
+            if (!r.AsSpan(3, 8).SequenceEqual("EXFAT   "u8)) continue;
+            BinaryPrimitives.WriteUInt64LittleEndian(r.AsSpan(0x40), (ulong)(partitionOffset / ss));
+            uint chk = 0;
+            for (int i = 0; i < 11 * ss; i++)
+            {
+                if (i is 106 or 107 or 112) continue;
+                chk = ((chk & 1) != 0 ? 0x80000000u : 0) + (chk >> 1) + r[i];
+            }
+            for (int i = 11 * ss; i < 12 * ss; i += 4) BinaryPrimitives.WriteUInt32LittleEndian(r.AsSpan(i), chk);
+            dev.Write(partitionOffset + region * ss, r);
+        }
+    }
+
     public static void PatchHiddenSectors(IBlockDevice dev, long partitionOffset, long length)
     {
         int ss = dev.SectorSize;
@@ -478,6 +502,7 @@ public static class PartitionMover
         dev.Read(partitionOffset, bs);
         bool ntfs = bs.AsSpan(3, 8).SequenceEqual("NTFS    "u8);
         bool fat = bs.AsSpan(82, 8).SequenceEqual("FAT32   "u8) || bs.AsSpan(54, 5).SequenceEqual("FAT16"u8) || bs.AsSpan(54, 5).SequenceEqual("FAT12"u8);
+        if (bs.AsSpan(3, 8).SequenceEqual("EXFAT   "u8)) { PatchExfatOffset(dev, partitionOffset); return; }
         if (!ntfs && !fat) return;
         BinaryPrimitives.WriteUInt32LittleEndian(bs.AsSpan(0x1C), lba);
         dev.Write(partitionOffset, bs);
@@ -512,5 +537,58 @@ public static class PartitionMover
                 }
             }
         }
+    }
+}
+
+public sealed record PartitionCopyReport(long BytesCopied, bool Verified);
+
+/// <summary>Copies a partition's bytes to another position (same or another device), only the given ranges when known.</summary>
+public static class PartitionCopier
+{
+    /// <param name="used">Volume-relative byte ranges holding data (NTFS used clusters); null copies everything.</param>
+    public static PartitionCopyReport Copy(RangeReader read, IBlockDevice dest, long srcOffset, long destOffset, long length,
+        IReadOnlyList<ByteRange>? used, bool verify, IProgress<RawProgress>? progress, CancellationToken ct)
+    {
+        int ss = Math.Max(512, dest.SectorSize);
+        const int Chunk = 4 * 1024 * 1024;
+        var ranges = used is null
+            ? new List<ByteRange> { new(0, length) }
+            // always the first and last MiB too: boot sectors and the NTFS backup boot sector
+            : ClonePlanner.Merge(used.Append(new ByteRange(0, Math.Min(length, 1 << 20))).Append(new ByteRange(Math.Max(0, length - (1 << 20)), Math.Min(length, 1 << 20))), ss)
+                .Where(r => r.Offset < length).Select(r => new ByteRange(r.Offset, Math.Min(r.Length, length - r.Offset))).ToList();
+        long total = ranges.Sum(r => r.Length), done = 0;
+        var buf = new byte[Chunk];
+        var back = verify ? new byte[Chunk] : null;
+        foreach (var r in ranges)
+        {
+            for (long o = 0; o < r.Length;)
+            {
+                ct.ThrowIfCancellationRequested();
+                int n = (int)Math.Min(Chunk, r.Length - o);
+                read(srcOffset + r.Offset + o, buf.AsSpan(0, n));
+                dest.Write(destOffset + r.Offset + o, buf.AsSpan(0, n));
+                o += n;
+                done += n;
+                progress?.Report(new RawProgress("Copy", done, total));
+            }
+        }
+        dest.Flush();
+        if (verify)
+        {
+            long vdone = 0;
+            foreach (var r in ranges)
+                for (long o = 0; o < r.Length;)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int n = (int)Math.Min(Chunk, r.Length - o);
+                    read(srcOffset + r.Offset + o, buf.AsSpan(0, n));
+                    dest.Read(destOffset + r.Offset + o, back.AsSpan(0, n));
+                    if (!buf.AsSpan(0, n).SequenceEqual(back.AsSpan(0, n))) throw new RawOperationException("CopyP.Error.Verify", $"copy differs at {r.Offset + o}");
+                    o += n;
+                    vdone += n;
+                    progress?.Report(new RawProgress("Verify", vdone, total));
+                }
+        }
+        return new PartitionCopyReport(done, verify);
     }
 }

@@ -71,6 +71,9 @@ public static partial class LayoutSimulator
         if (op is InitializeDiskOp init) return ApplyInitialize(d, init, issues);
         if (op is RestoreTableOp restore) return ApplyRestore(d, restore, issues);
         if (op is RepairBootOp repair) return ApplyRepairBoot(d, repair, issues);
+        if (op is WipeOp { OffsetBytes: null } wipeDisk) return ApplyWipe(d, wipeDisk, issues);
+        if (op is SanitizeDiskOp sanitize) return ApplySanitize(d, sanitize, issues);
+        if (op is ConvertDiskTypeOp diskType) return ApplyConvertDiskType(d, diskType, issues);
 
         // ---- disk-level gates
         if (d.Style is not (PartitionStyle.Gpt or PartitionStyle.Mbr)) return Fail(issues, "Op.Error.DiskStyle", d, d.Number);
@@ -81,6 +84,8 @@ public static partial class LayoutSimulator
         if (op is CreatePartitionOp create) return ApplyCreate(d, create, lettersElsewhere, issues);
         if (op is ConvertStyleOp convert) return ApplyConvert(d, convert, issues);
         if (op is PrepareBootOp boot) return ApplyPrepareBoot(d, boot, issues);
+        if (op is CopyPartitionOp copyPart) return ApplyCopyPartition(d, copyPart, lettersElsewhere, otherDisk, issues);
+        if (op is WipeOp wipePart) return ApplyWipe(d, wipePart, issues);
 
         var offset = op switch
         {
@@ -94,6 +99,11 @@ public static partial class LayoutSimulator
             SetHiddenOp x => x.OffsetBytes,
             SetTypeOp x => x.OffsetBytes,
             RepairBootSectorOp x => x.OffsetBytes,
+            CopyFilesOp x => x.DestOffsetBytes,
+            RepairFileSystemOp x => x.OffsetBytes,
+            ConvertFileSystemOp x => x.OffsetBytes,
+            ReformatKeepingFilesOp x => x.OffsetBytes,
+            ConvertPartitionKindOp x => x.OffsetBytes,
             _ => throw new NotSupportedException(op.GetType().Name),
         };
         var target = d.Partitions.FirstOrDefault(p => p.OffsetBytes == offset && p.Role != PartitionRole.MbrExtended);
@@ -117,6 +127,11 @@ public static partial class LayoutSimulator
             SetHiddenOp h => ApplySetHidden(d, target, h, isWindows || isFirmwareSystem || isSpecialRole, issues),
             SetTypeOp t => ApplySetType(d, target, t, isWindows || isFirmwareSystem, issues),
             RepairBootSectorOp b => ApplyRepairBootSector(d, target, b, isWindows || isFirmwareSystem || isSpecialRole, issues),
+            CopyFilesOp cf => ApplyCopyFiles(d, target, cf, otherDisk, issues),
+            RepairFileSystemOp => ApplyRepairFileSystem(d, target, issues),
+            ConvertFileSystemOp cv => ApplyConvertFileSystem(d, target, cv, issues),
+            ReformatKeepingFilesOp rk => ApplyReformatKeepingFiles(d, target, rk, issues),
+            ConvertPartitionKindOp pk => ApplyConvertPartitionKind(d, target, pk, issues),
             _ => d,
         };
 

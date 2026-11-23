@@ -197,7 +197,8 @@ public sealed class GuardedExecutionEngine
 
             // Re-read and verify before doing anything else. After raw table writes Windows publishes the new layout
             // asynchronously, so those are re-read a few times before a mismatch counts.
-            bool raw = op is ConvertStyleOp or MovePartitionOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp or RepairBootSectorOp;
+            bool raw = op is ConvertStyleOp or MovePartitionOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp or RepairBootSectorOp
+                or CopyPartitionOp or WipeOp or SanitizeDiskOp or RepairFileSystemOp or ConvertFileSystemOp or ReformatKeepingFilesOp or ConvertDiskTypeOp or ConvertPartitionKindOp;
             DiskInfo? after = null;
             string? mismatch = null;
             for (int attempt = 0; ; attempt++)
@@ -210,7 +211,8 @@ public sealed class GuardedExecutionEngine
                 try { await _executor.RefreshAsync(disk); } catch (Exception ex) { _log.Info("Refresh after raw write: " + ex.Message); }
                 await Task.Delay(1000, CancellationToken.None);
             }
-            bool rewritesTable = op is ConvertStyleOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp;
+            bool rewritesTable = op is ConvertStyleOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp
+                or WipeOp { OffsetBytes: null } or SanitizeDiskOp or ConvertDiskTypeOp or ConvertPartitionKindOp or CopyPartitionOp;
             if (after is null || (rewritesTable
                     ? DiskFingerprint.Hardware(after) != DiskFingerprint.Hardware(disk)
                     : DiskFingerprint.Identity(after) != DiskFingerprint.Identity(disk)))
@@ -301,6 +303,43 @@ public sealed class GuardedExecutionEngine
                 if (At(actual, sa.OffsetBytes)?.MbrActive != true) return "partition is not active";
                 if (actual.Partitions.Count(p => p.MbrActive) != 1) return "more than one active partition";
                 break;
+            case CopyPartitionOp cp:
+            {
+                var p = At(actual, cp.DestOffsetBytes);
+                if (p is null) return $"no partition at {cp.DestOffsetBytes}";
+                var want = At(expected, cp.DestOffsetBytes)?.Volume?.FileSystem;
+                if (!string.Equals(p.Volume?.FileSystem, want, StringComparison.OrdinalIgnoreCase)) return $"copy reads as {p.Volume?.FileSystem ?? "RAW"}, expected {want}";
+                break;
+            }
+            case WipeOp { OffsetBytes: null }:
+            case SanitizeDiskOp:
+                if (Real(actual).Any()) return "partitions are still listed after the wipe";
+                return null;
+            case WipeOp { OffsetBytes: { } wo }:
+            {
+                var v = At(actual, wo)?.Volume;
+                if (v is { AccessError: null, FileSystem: not null }) return $"volume still reads as {v.FileSystem}";
+                break;
+            }
+            case RepairFileSystemOp rf:
+                if (At(actual, rf.OffsetBytes)?.Volume is not { AccessError: null }) return "volume unreadable after repair";
+                break;
+            case ConvertFileSystemOp cf:
+                if (!string.Equals(At(actual, cf.OffsetBytes)?.Volume?.FileSystem, cf.TargetFileSystem, StringComparison.OrdinalIgnoreCase)) return $"file system {At(actual, cf.OffsetBytes)?.Volume?.FileSystem} != {cf.TargetFileSystem}";
+                break;
+            case ReformatKeepingFilesOp rk:
+            {
+                var v = At(actual, rk.OffsetBytes)?.Volume;
+                if (!string.Equals(v?.FileSystem, rk.FileSystem, StringComparison.OrdinalIgnoreCase)) return $"file system {v?.FileSystem} != {rk.FileSystem}";
+                if (rk.ClusterSizeBytes is { } cs && v?.ClusterSizeBytes is { } got && got != cs) return $"cluster size {got} != {cs}";
+                break;
+            }
+            case ConvertDiskTypeOp dt:
+                if (actual.IsDynamic != dt.ToDynamic) return $"dynamic = {actual.IsDynamic}";
+                return null;
+            case ConvertPartitionKindOp pk:
+                if ((At(actual, pk.OffsetBytes)?.Role == PartitionRole.MbrLogical) != pk.ToLogical) return $"partition is {(pk.ToLogical ? "not " : "")}logical";
+                break;
             case RepairBootSectorOp rb:
             {
                 var v = At(actual, rb.OffsetBytes)?.Volume;
@@ -362,6 +401,13 @@ public sealed class GuardedExecutionEngine
             RecoverPartitionOp rp => rp.OffsetBytes,
             SetHiddenOp sh => sh.OffsetBytes,
             RepairBootSectorOp rb => rb.OffsetBytes,
+            CopyFilesOp cf => cf.DestOffsetBytes,
+            CopyPartitionOp cp => cp.DestOffsetBytes,
+            WipeOp { OffsetBytes: { } wo } => wo,
+            RepairFileSystemOp rf => rf.OffsetBytes,
+            ConvertFileSystemOp cv => cv.OffsetBytes,
+            ReformatKeepingFilesOp rk => rk.OffsetBytes,
+            ConvertPartitionKindOp pk => pk.OffsetBytes,
             SetTypeOp st => st.OffsetBytes,
             _ => ulong.MaxValue,
         };

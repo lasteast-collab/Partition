@@ -23,3 +23,15 @@ public interface IAppLog
     void Warn(string message);
     void Error(string message, Exception? ex = null);
 }
+
+/// <summary>Read-only file-system checks (chkdsk without /f): nothing is changed.</summary>
+public interface IFileSystemTools
+{
+    /// <summary>Scans the volume and returns the tool's report.</summary>
+    Task<string> CheckAsync(PartitionInfo partition, CancellationToken ct = default);
+}
+
+public sealed class NullFileSystemTools : IFileSystemTools
+{
+    public Task<string> CheckAsync(PartitionInfo partition, CancellationToken ct = default) => Task.FromResult("");
+}

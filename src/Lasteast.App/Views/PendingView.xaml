@@ -56,6 +56,8 @@
                             </StackPanel>
                             <TextBlock Text="{ui:Tr Pending.Operations}" Style="{StaticResource Text.Section}" VerticalAlignment="Center" Margin="0" />
                         </DockPanel>
+                        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="{DynamicResource Sev.Critical}" Margin="0,0,0,6"
+                                   Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}" />
                         <ItemsControl ItemsSource="{Binding Items}" Focusable="False">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:PendingItem}">
@@ -71,10 +73,20 @@
                                             <TextBlock Text="{ui:Tr Pending.DataLoss}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Sev.Critical}"
                                                        Visibility="{Binding DestroysData, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
-                                        <Button Grid.Column="2" Style="{StaticResource Button.Base}" Padding="6,4" Command="{Binding RemoveCommand}"
-                                                ToolTip="{ui:Tr Pending.Remove}" AutomationProperties.Name="{ui:Tr Pending.Remove}">
-                                            <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE711;" FontSize="12" />
-                                        </Button>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Style="{StaticResource Button.Base}" Padding="6,4" Command="{Binding MoveUpCommand}"
+                                                    ToolTip="{ui:Tr Pending.MoveUp}" AutomationProperties.Name="{ui:Tr Pending.MoveUp}">
+                                                <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE74A;" FontSize="12" />
+                                            </Button>
+                                            <Button Style="{StaticResource Button.Base}" Padding="6,4" Command="{Binding MoveDownCommand}"
+                                                    ToolTip="{ui:Tr Pending.MoveDown}" AutomationProperties.Name="{ui:Tr Pending.MoveDown}">
+                                                <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE74B;" FontSize="12" />
+                                            </Button>
+                                            <Button Style="{StaticResource Button.Base}" Padding="6,4" Command="{Binding RemoveCommand}"
+                                                    ToolTip="{ui:Tr Pending.Remove}" AutomationProperties.Name="{ui:Tr Pending.Remove}">
+                                                <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE711;" FontSize="12" />
+                                            </Button>
+                                        </StackPanel>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

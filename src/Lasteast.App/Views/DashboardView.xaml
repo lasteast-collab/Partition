@@ -230,12 +230,45 @@
                             <TextBlock Text="{Binding Title}" Style="{StaticResource Text.Section}" />
                             <TextBlock Text="{Binding TargetText}" Style="{StaticResource Text.Muted}" Margin="0,0,0,8" TextWrapping="Wrap" />
 
+                            <TextBlock Text="{Binding ModeNote}" TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Visibility="{Binding HasModeNote, Converter={StaticResource BoolToVis}}" />
                             <StackPanel Visibility="{Binding ShowSize, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
                                 <TextBlock Text="{ui:Tr Editor.SizeGiB}" Style="{StaticResource Text.Muted}" />
                                 <TextBox Text="{Binding SizeText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input}"
                                          AutomationProperties.Name="{ui:Tr Editor.SizeGiB}" />
+                                <!-- drag the boundary: the slider moves the partition's end between its limits -->
+                                <Slider Minimum="{Binding SliderMin, Mode=OneWay}" Maximum="{Binding SliderMax, Mode=OneWay}" Value="{Binding SliderValue}"
+                                        Visibility="{Binding ShowSlider, Converter={StaticResource BoolToVis}}" Margin="0,6,0,2"
+                                        AutomationProperties.Name="{ui:Tr Editor.DragSize}" ToolTip="{ui:Tr Editor.DragSize}" />
                                 <TextBlock Text="{Binding RangeText}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" />
                             </StackPanel>
+                            <StackPanel Visibility="{Binding ShowChoice, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
+                                <TextBlock Text="{Binding ChoiceLabel}" Style="{StaticResource Text.Muted}" />
+                                <ComboBox ItemsSource="{Binding ChoiceOptions}" SelectedItem="{Binding SelectedChoice}" MinWidth="0" AutomationProperties.Name="{Binding ChoiceLabel}">
+                                    <ComboBox.ItemTemplate><DataTemplate DataType="{x:Type vm:ChoiceItem}"><TextBlock Text="{Binding Title}" /></DataTemplate></ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Visibility="{Binding ShowChoice2, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
+                                <TextBlock Text="{Binding Choice2Label}" Style="{StaticResource Text.Muted}" />
+                                <ComboBox ItemsSource="{Binding Choice2Options}" SelectedItem="{Binding SelectedChoice2}" MinWidth="0" AutomationProperties.Name="{Binding Choice2Label}">
+                                    <ComboBox.ItemTemplate><DataTemplate DataType="{x:Type vm:ChoiceItem}"><TextBlock Text="{Binding Title}" /></DataTemplate></ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Visibility="{Binding ShowText, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
+                                <TextBlock Text="{Binding TextLabel}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBox Text="{Binding TextValue, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input}" AutomationProperties.Name="{Binding TextLabel}" />
+                                    <Button Grid.Column="1" Content="{ui:Tr Common.Browse}" Command="{Binding BrowseCommand}" Style="{StaticResource Button.Outline}" Margin="6,0,0,0"
+                                            Visibility="{Binding ShowBrowse, Converter={StaticResource BoolToVis}}" />
+                                </Grid>
+                            </StackPanel>
+                            <CheckBox IsChecked="{Binding CheckValue}" Content="{Binding CheckLabel}" Margin="0,0,0,8"
+                                      Visibility="{Binding ShowCheck, Converter={StaticResource BoolToVis}}" />
+                            <Button Style="{StaticResource Button.Accent}" Command="{Binding RunToolCommand}" Content="{ui:Tr Editor.Run}" HorizontalAlignment="Left" Margin="0,0,0,8"
+                                    Visibility="{Binding IsTool, Converter={StaticResource BoolToVis}}" />
+                            <TextBox Text="{Binding ToolOutput, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="240" VerticalScrollBarVisibility="Auto"
+                                     FontFamily="Consolas" Margin="0,0,0,8" Visibility="{Binding HasToolOutput, Converter={StaticResource BoolToVis}}" />
                             <StackPanel Visibility="{Binding ShowOffset, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
                                 <TextBlock Text="{ui:Tr Editor.NewStartMiB}" Style="{StaticResource Text.Muted}" />
                                 <TextBox Text="{Binding OffsetText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input}"
@@ -285,9 +318,11 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <TextBlock Text="{ui:Tr Editor.QueueNote}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                            <TextBlock Text="{ui:Tr Editor.QueueNote}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Visibility="{Binding IsNotTool, Converter={StaticResource BoolToVis}}" />
                             <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource Button.Accent}" Command="{Binding AddCommand}" Content="{ui:Tr Editor.Add}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource Button.Accent}" Command="{Binding AddCommand}" Content="{ui:Tr Editor.Add}" Margin="0,0,8,0"
+                                        Visibility="{Binding IsNotTool, Converter={StaticResource BoolToVis}}" />
                                 <Button Style="{StaticResource Button.Outline}" Command="{Binding CancelCommand}" Content="{ui:Tr Editor.Cancel}" />
                             </StackPanel>
                         </StackPanel>
