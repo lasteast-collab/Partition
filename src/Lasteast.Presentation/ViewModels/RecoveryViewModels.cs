@@ -150,6 +150,7 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
     private StorageInventory? _inv;
     private RecoverySource? _source;
     private bool _includeExisting;
+    private bool _byContent;
     private string _filter = "";
     private string? _destination;
     private string? _status;
@@ -183,6 +184,8 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
 
     public RecoverySource? Source { get => _source; set { if (Set(ref _source, value)) { CloseReader(); Files.Clear(); _all.Clear(); Status = null; } } }
     public bool IncludeExisting { get => _includeExisting; set => Set(ref _includeExisting, value); }
+    /// <summary>Search the raw data for known file types instead of reading the file system (works after a format or on unknown file systems).</summary>
+    public bool ByContent { get => _byContent; set => Set(ref _byContent, value); }
     public string Filter { get => _filter; set { if (Set(ref _filter, value)) ApplyFilter(); } }
     public string? Destination { get => _destination; set { if (Set(ref _destination, value)) OnPropertyChanged(nameof(DestinationText)); } }
     public string DestinationText => _destination ?? L("Rec.NoDestination");
@@ -216,6 +219,7 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
         CloseReader();
         _cts = new CancellationTokenSource();
         var progress = new Progress<RecoveryScanProgress>(p => Status = Loc.Instance.Format("Rec.Scanning", Percent(p.Total == 0 ? 0 : (double)p.Done / p.Total), p.Found));
+        bool byContent = _byContent;
         try
         {
             var (reader, dev, files) = await Task.Run(() =>
@@ -224,7 +228,8 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
                 try
                 {
                     var vol = new OffsetDevice(dev, (long)src.OffsetBytes, (long)src.SizeBytes);
-                    var r = RecoveryReaders.Open(vol) ?? throw new RawOperationException("Rec.Error.UnknownFs", "");
+                    // unknown or damaged file system → fall back to searching by content
+                    var r = (byContent ? null : RecoveryReaders.Open(vol)) ?? new CarvingRecoveryReader(vol);
                     return (r, dev, r.Scan(_includeExisting, progress, _cts.Token));
                 }
                 catch { dev.Dispose(); throw; }
@@ -233,7 +238,9 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
             _openDevice = dev;
             _all = files.Select(f => new RecoverableFileViewModel(f)).ToList();
             ApplyFilter();
-            Status = Loc.Instance.Format("Rec.Found", files.Count(f => f.IsDeleted), files.Count, reader.FileSystem);
+            Status = reader is CarvingRecoveryReader
+                ? Loc.Instance.Format(byContent ? "Rec.Carved" : "Rec.CarvedFallback", files.Count)
+                : Loc.Instance.Format("Rec.Found", files.Count(f => f.IsDeleted), files.Count, reader.FileSystem);
         }
         catch (OperationCanceledException) { Status = L("LostP.Cancelled"); }
         catch (RawOperationException ex) { Status = Loc.Instance.Format(ex.Key, ex.Message); }
@@ -279,9 +286,13 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
         Sources.Clear();
         foreach (var s in lost) Sources.Add(s);
         foreach (var d in _inv?.Disks ?? Array.Empty<DiskInfo>())
-        foreach (var p in d.Partitions.Where(p => p.Volume?.FileSystem is "NTFS" or "FAT32"))
-            Sources.Add(new RecoverySource(d.Number, p.OffsetBytes, p.SizeBytes,
-                $"{L("Common.Disk")} {d.Number} · {PartitionTitle(p)} · {p.Volume!.FileSystem} · {Size(p.SizeBytes)}" + (p.Volume.Label is { Length: > 0 } l ? $" \"{l}\"" : "")));
+        {
+            foreach (var p in d.Partitions.Where(p => p.Role is not (PartitionRole.MicrosoftReserved or PartitionRole.MbrExtended) && p.SizeBytes > 0))
+                Sources.Add(new RecoverySource(d.Number, p.OffsetBytes, p.SizeBytes,
+                    $"{L("Common.Disk")} {d.Number} · {PartitionTitle(p)} · {p.Volume?.FileSystem ?? "RAW"} · {Size(p.SizeBytes)}" + (p.Volume?.Label is { Length: > 0 } l ? $" \"{l}\"" : "")));
+            // the whole disk: for searching by content when the partition table itself is gone
+            Sources.Add(new RecoverySource(d.Number, 0, d.SizeBytes, $"{L("Common.Disk")} {d.Number} · {L("Rec.WholeDisk")} · {Size(d.SizeBytes)}"));
+        }
         _source = Sources.FirstOrDefault(s => s == keep);
         OnPropertyChanged(nameof(Source));
         OnPropertyChanged(nameof(Available));

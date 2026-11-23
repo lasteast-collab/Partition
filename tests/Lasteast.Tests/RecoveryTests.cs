@@ -189,3 +189,28 @@ public static class RecoveryTests
         Assert.True(LayoutSimulator.Simulate(d, new[] { new RecoverPartitionOp(7, 80 * (ulong)MiB, 8 * (ulong)MiB, "NTFS") }).IsValid);
     }
 }
+
+public static class CarvingTests
+{
+    [Test]
+    public static void Carver_finds_every_planted_file_with_exact_length_and_no_false_positives()
+    {
+        var expected = File.ReadAllLines(Path.Combine(DiskImage.Fixtures, "carve-checksums.txt"))
+            .Select(l => l.Split(' ')).Select(p => (Offset: long.Parse(p[0]), Ext: p[1], Hash: p[2].ToUpperInvariant())).ToList();
+        using var img = new DiskImage(4);
+        img.Put(0, DiskImage.Fixture("carve4.img.gz"));
+        using var dev = img.Open();
+        var reader = new CarvingRecoveryReader(dev);
+        var files = reader.Scan(false, null, CancellationToken.None);
+        var got = files.Select(f =>
+        {
+            using var ms = new MemoryStream();
+            reader.Extract(f, ms, CancellationToken.None);
+            var off = Convert.ToInt64(f.Name.Split('-')[2].Split('.')[0], 16);
+            return (Offset: off, Ext: Path.GetExtension(f.Name)[1..], Hash: Convert.ToHexString(SHA256.HashData(ms.ToArray())));
+        }).ToList();
+        foreach (var e in expected)
+            Assert.True(got.Contains(e), $"missing {e.Ext} at {e.Offset}; got [{string.Join(", ", got.Select(g => $"{g.Ext}@{g.Offset}:{g.Hash[..8]}"))}]");
+        Assert.Equal(expected.Count, got.Count);
+    }
+}

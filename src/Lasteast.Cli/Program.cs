@@ -15,7 +15,7 @@ using Lasteast.Storage.Windows.Operations;
 // Lasteast command line.
 //   lasteast inventory [--json] [--show-serials]
 //   lasteast scan-lost <disk> [--deep]                      read-only
-//   lasteast undelete <disk> <offset> <size> --to <folder> [--all]
+//   lasteast undelete <disk> <offset> <size> --to <folder> [--all] [--by-content]
 //   lasteast backup <folder>... --to <folder> [--no-verify]
 //   lasteast bcd                                             read-only
 //   lasteast account-help [--lang xx]
@@ -74,7 +74,7 @@ internal static class Cli
         Console.WriteLine("Lasteast Partition — command line");
         Console.WriteLine("  inventory [--json] [--show-serials]                 list disks and partitions (read-only)");
         Console.WriteLine("  scan-lost <disk> [--deep]                           find lost partitions (read-only)");
-        Console.WriteLine("  undelete <disk> <offset> <size> --to <folder> [--all]  copy deleted (or all) files of a volume to another disk");
+        Console.WriteLine("  undelete <disk> <offset> <size> --to <folder> [--all] [--by-content]  copy deleted (or all) files of a volume to another disk;\n      --by-content finds photos/videos/PDF/Office files by their content (also used when the file system is unreadable)");
         Console.WriteLine("  backup <folder>... --to <folder> [--no-verify]      copy folders and verify");
         Console.WriteLine("  bcd                                                 show boot entries (read-only)");
         Console.WriteLine("  account-help [--lang en|he|ar|fr|es|de|ru]           supported ways to regain access to Windows");
@@ -185,13 +185,15 @@ internal static class Cli
         if (args.Length < 4 || !ulong.TryParse(args[2], out var off) || !ulong.TryParse(args[3], out var size)) throw new ArgumentException("offset and size (bytes) expected");
         var to = Opt(args, "--to") ?? throw new ArgumentException("--to <folder> is required");
         var inv = await Inv();
-        return RecoverFiles(inv, disk, off, size, to, args.Contains("--all"), interactive: false);
+        return RecoverFiles(inv, disk, off, size, to, args.Contains("--all"), interactive: false, byContent: args.Contains("--by-content"));
     }
 
-    private static int RecoverFiles(StorageInventory inv, DiskInfo disk, ulong off, ulong size, string to, bool all, bool interactive)
+    private static int RecoverFiles(StorageInventory inv, DiskInfo disk, ulong off, ulong size, string to, bool all, bool interactive, bool byContent = false)
     {
         using var dev = new PhysicalDiskDevice(disk, writable: false);
-        var reader = RecoveryReaders.Open(new OffsetDevice(dev, (long)off, (long)size)) ?? throw new InvalidOperationException("not an NTFS or FAT32 volume");
+        var vol = new OffsetDevice(dev, (long)off, (long)size);
+        IRecoveryReader reader = (byContent ? null : RecoveryReaders.Open(vol)) ?? new CarvingRecoveryReader(vol);
+        if (reader is CarvingRecoveryReader) Console.WriteLine("Searching by file content (names and folders are not recoverable this way).");
         Console.WriteLine($"  {reader.FileSystem} \"{reader.Label}\" — reading the file table…");
         var files = reader.Scan(all, null, CancellationToken.None);
         var wanted = files.Where(f => f.Recoverability != Recoverability.Unrecoverable && (all || f.IsDeleted)).ToList();

@@ -22,6 +22,7 @@
                 </ComboBox>
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <CheckBox IsChecked="{Binding IncludeExisting}" Content="{ui:Tr Rec.IncludeExisting}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <CheckBox IsChecked="{Binding ByContent}" Content="{ui:Tr Rec.ByContent}" ToolTip="{ui:Tr Rec.ByContentHint}" VerticalAlignment="Center" Margin="0,0,12,0" />
                     <Button Style="{StaticResource Button.Accent}" Command="{Binding ScanCommand}" Content="{ui:Tr Rec.Scan}" Padding="14,6" Margin="0,0,8,0" />
                     <Button Style="{StaticResource Button.Outline}" Command="{Binding CancelCommand}" Content="{ui:Tr Editor.Cancel}" Padding="12,6"
                             Visibility="{Binding Busy, Converter={StaticResource BoolToVis}}" />
