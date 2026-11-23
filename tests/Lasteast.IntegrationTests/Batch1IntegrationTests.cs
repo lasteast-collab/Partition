@@ -168,8 +168,11 @@ public static class VirtualDiskFileTests
         mgr.Compact(vhdx);
         mgr.Convert(vhdx, vhd, dynamic: true);
         Assert.Equal(128UL * 1024 * 1024, await SizeOf(vhd));
-        mgr.Shrink(vhdx, 96UL * 1024 * 1024); // empty disk: shrinking into unallocated space is safe
-        Assert.Equal(96UL * 1024 * 1024, await SizeOf(vhdx));
+        // Windows refuses to shrink without a partition table (it cannot prove the cut is safe): give it one
+        VirtualDisk.DiskPart($"select vdisk file=\"{vhdx}\"", "attach vdisk", "convert gpt", "create partition primary size=20", "detach vdisk");
+        mgr.Shrink(vhdx, null);
+        var shrunk = await SizeOf(vhdx);
+        Assert.True(shrunk < 128UL * 1024 * 1024 && shrunk >= 20UL * 1024 * 1024, $"shrunk to {shrunk}");
         bool refused = false;
         try { mgr.Shrink(vhd, null); } catch (OperationFailedException ex) { refused = ex.Key == "Vd.Error.ShrinkVhd"; }
         Assert.True(refused, "VHD shrink refused");
