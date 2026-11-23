@@ -163,7 +163,7 @@ public sealed class StorageManagementExecutor : IOperationExecutor
 
     private static string? FirstVolumePath(dynamic partition)
     {
-        object? paths = Step<object?>("AccessPaths", () => (object?)partition.AccessPaths);
+        object? paths = Step<object?>("AccessPaths", () => (object?)partition.Properties_.Item("AccessPaths").Value);
         if (paths is not object[] arr) return null;
         return arr.OfType<string>().FirstOrDefault(s => s.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase));
     }
