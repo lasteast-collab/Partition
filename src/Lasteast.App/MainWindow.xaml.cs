@@ -30,7 +30,11 @@ public partial class MainWindow : Window
                     await _vm.RefreshCommand.ExecuteAsync();
             };
         };
-        Loaded += async (_, _) => await _vm.RefreshCommand.ExecuteAsync();
+        Loaded += async (_, _) =>
+        {
+            await _vm.RefreshCommand.ExecuteAsync();
+            _vm.StartMonitor();
+        };
         Closed += (_, _) => _watcher?.Dispose();
         Closing += (_, e) =>
         {

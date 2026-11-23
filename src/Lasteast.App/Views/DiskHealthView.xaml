@@ -1,0 +1,75 @@
+<UserControl x:Class="Lasteast.App.Views.DiskHealthView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Lasteast.App.Infrastructure"
+             xmlns:vm="clr-namespace:Lasteast.Presentation.ViewModels;assembly=Lasteast.Presentation">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24,20" MaxWidth="1000" HorizontalAlignment="Left">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Outline}" Command="{Binding RefreshCommand}" Content="{ui:Tr Health.Refresh}" Padding="12,6" VerticalAlignment="Top" />
+                <StackPanel>
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.PageTitle}" />
+                    <TextBlock Text="{ui:Tr Health.Subtitle}" Style="{StaticResource Text.Muted}" FontSize="13" TextWrapping="Wrap" Margin="0,2,0,12" />
+                </StackPanel>
+            </DockPanel>
+            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,10" Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}" />
+            <ItemsControl ItemsSource="{Binding Cards}" Focusable="False">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:DiskHealthCard}">
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                            <StackPanel>
+                                <DockPanel>
+                                    <Border x:Name="Badge" DockPanel.Dock="Right" CornerRadius="10" Padding="10,2" Background="{DynamicResource Health.Unknown}">
+                                        <TextBlock Text="{Binding VerdictText}" Foreground="White" FontWeight="SemiBold" />
+                                    </Border>
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="15" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding SourcesText}" Style="{StaticResource Text.Muted}" Margin="0,2,0,8" />
+                                <ItemsControl ItemsSource="{Binding Metrics}" Focusable="False">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:MetricRow}">
+                                            <StackPanel Margin="0,0,24,8" MinWidth="120">
+                                                <TextBlock Text="{Binding Label}" Style="{StaticResource Text.Muted}" />
+                                                <TextBlock Text="{Binding Value}" FontWeight="SemiBold" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <ItemsControl ItemsSource="{Binding Findings}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:FindingRow}">
+                                            <TextBlock x:Name="T" Text="{Binding Text}" TextWrapping="Wrap" Margin="0,1" />
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding Kind}" Value="Warning"><Setter TargetName="T" Property="Foreground" Value="{DynamicResource Health.Warning}" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding Kind}" Value="Critical"><Setter TargetName="T" Property="Foreground" Value="{DynamicResource Health.Critical}" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding Kind}" Value="Healthy"><Setter TargetName="T" Property="Foreground" Value="{DynamicResource Health.Healthy}" /></DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Expander Header="{ui:Tr Health.Attributes}" Margin="0,8,0,0" Visibility="{Binding HasAttributes, Converter={StaticResource BoolToVis}}">
+                                    <DataGrid ItemsSource="{Binding Attributes}" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" Margin="0,6,0,0" MaxHeight="360">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="44" />
+                                            <DataGridTextColumn Header="{ui:Tr An.Col.Name}" Binding="{Binding Name}" Width="*" />
+                                            <DataGridTextColumn Header="{ui:Tr Health.Col.Current}" Binding="{Binding Current}" Width="70" />
+                                            <DataGridTextColumn Header="{ui:Tr Health.Col.Worst}" Binding="{Binding Worst}" Width="70" />
+                                            <DataGridTextColumn Header="{ui:Tr Health.Col.Threshold}" Binding="{Binding Threshold}" Width="80" />
+                                            <DataGridTextColumn Header="{ui:Tr Health.Col.Raw}" Binding="{Binding Raw}" Width="120" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding VerdictKind}" Value="Healthy"><Setter TargetName="Badge" Property="Background" Value="{DynamicResource Health.Healthy}" /></DataTrigger>
+                            <DataTrigger Binding="{Binding VerdictKind}" Value="Warning"><Setter TargetName="Badge" Property="Background" Value="{DynamicResource Health.Warning}" /></DataTrigger>
+                            <DataTrigger Binding="{Binding VerdictKind}" Value="Critical"><Setter TargetName="Badge" Property="Background" Value="{DynamicResource Health.Critical}" /></DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

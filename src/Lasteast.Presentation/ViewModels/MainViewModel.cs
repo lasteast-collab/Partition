@@ -65,8 +65,9 @@ public sealed class MainViewModel : ObservableObject
         string[] args, GuardedExecutionEngine? engine = null, Core.SmartFix.ISystemProbe? systemProbe = null,
         Core.Cleanup.IFileRemover? remover = null, IReadOnlyList<Core.Cleanup.CleanupTarget>? cleanupTargets = null,
         DiskReader? diskReader = null, Core.Boot.IBootTools? bootTools = null, Core.Boot.IRescueMediaBuilder? rescueBuilder = null,
-        string? tableBackupRoot = null)
+        string? tableBackupRoot = null, Core.Health.IDiskHealthProvider? healthProvider = null)
     {
+        _ui = SynchronizationContext.Current;
         _provider = provider;
         _privileges = privileges;
         _log = log;
@@ -102,6 +103,11 @@ public sealed class MainViewModel : ObservableObject
         BootPage = new BootRecoveryPageViewModel(bootTools ?? new NullBootTools(), rescueBuilder ?? new NullRescueMediaBuilder(), Queue, shell,
             tableBackupRoot ?? Path.Combine(Path.GetTempPath(), "lasteast-none"), () => SelectedNav = PendingNav);
         BackupPage = new BackupPageViewModel(shell);
+        HealthPage = new DiskHealthPageViewModel(healthProvider);
+        SettingsPage.MonitorChanged += StartMonitor;
+        PerformancePage = new PerformanceLabPageViewModel(diskReader);
+        _healthProvider = healthProvider;
+        DismissAlertsCommand = new RelayCommand(() => { _dismissed.UnionWith(_alertIds); Alerts.Clear(); OnPropertyChanged(nameof(HasAlerts)); });
         NavItem? backupNav = null;
         AccountPage = new AccountRecoveryPageViewModel(shell, () => SelectedNav = backupNav!);
         NavItem? fileRecoveryNav = null;
@@ -128,8 +134,8 @@ public sealed class MainViewModel : ObservableObject
             new NavGroup("NavGroup.Analyze",
                 new NavItem("Nav.StorageAnalyzer", "\uE9D9", AnalyzerPage),
                 new NavItem("Nav.Cleanup", "\uEA99", CleanupPage),
-                Planned("Nav.DiskHealth", "\uE95E", 9),
-                Planned("Nav.PerformanceLab", "\uEC4A", 9)),
+                new NavItem("Nav.DiskHealth", "\uE95E", HealthPage),
+                new NavItem("Nav.PerformanceLab", "\uEC4A", PerformancePage)),
             new NavGroup("NavGroup.Advanced",
                 Planned("Nav.VirtualDisks", "\uE8F1", 10),
                 Planned("Nav.FileOperations", "\uE8B7", 10),
@@ -197,6 +203,54 @@ public sealed class MainViewModel : ObservableObject
     public BootRecoveryPageViewModel BootPage { get; }
     public AccountRecoveryPageViewModel AccountPage { get; }
     public BackupPageViewModel BackupPage { get; }
+    public DiskHealthPageViewModel HealthPage { get; }
+    public PerformanceLabPageViewModel PerformancePage { get; }
+
+    // ---- background monitor (free space, health, temperature)
+    private readonly SynchronizationContext? _ui;
+    private readonly Core.Health.IDiskHealthProvider? _healthProvider;
+    private readonly HashSet<string> _dismissed = new();
+    private HashSet<string> _alertIds = new();
+    private CancellationTokenSource? _monitorCts;
+    public System.Collections.ObjectModel.ObservableCollection<AlertViewModel> Alerts { get; } = new();
+    public bool HasAlerts => Alerts.Count > 0;
+    public RelayCommand DismissAlertsCommand { get; }
+
+    /// <summary>Starts the periodic check (Settings › Monitoring). Safe to call again after settings change.</summary>
+    public void StartMonitor()
+    {
+        _monitorCts?.Cancel();
+        if (!AppSettings.MonitorEnabled) return;
+        _monitorCts = new CancellationTokenSource();
+        var ct = _monitorCts.Token;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(20), ct); // let the first inventory finish
+            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(Math.Clamp(AppSettings.MonitorIntervalMinutes, 5, 24 * 60)));
+            do { await CheckOnceAsync(); } while (await timer.WaitForNextTickAsync(ct));
+        }, ct);
+    }
+
+    /// <summary>One monitor pass; also used by tests.</summary>
+    public async Task CheckOnceAsync()
+    {
+        var inv = _inventory;
+        if (inv is null || inv.IsSampleData) return;
+        var health = new Dictionary<int, Core.Health.DiskHealthReport>();
+        if (_healthProvider is not null && inv.IsElevated)
+            foreach (var d in inv.Disks)
+                try { health[d.Number] = await _healthProvider.ReadAsync(d); } catch (Exception ex) { _log.Error("Monitor health read", ex); }
+        var alerts = Core.Health.MonitorRules.Evaluate(inv, health, AppSettings).Where(a => !_dismissed.Contains(a.Id)).ToList();
+        void Apply(object? _)
+        {
+            _alertIds = alerts.Select(a => a.Id).ToHashSet();
+            Alerts.Clear();
+            foreach (var a in alerts)
+                Alerts.Add(new AlertViewModel(Loc.Instance.Format(a.Key, a.Args.Select(x => x is ulong u ? (object)Size(u) : x).ToArray()), a.Level.ToString()));
+            OnPropertyChanged(nameof(HasAlerts));
+        }
+        if (_ui is not null) _ui.Post(Apply, null); else Apply(null);
+    }
     public OperationQueue Queue { get; }
     public PendingPageViewModel PendingPage { get; }
     public NavItem PendingNav { get; } = null!;
@@ -285,6 +339,8 @@ public sealed class MainViewModel : ObservableObject
         BootPage.Refresh(state);
         AccountPage.Refresh(state);
         BackupPage.Refresh(state);
+        HealthPage.Refresh(state);
+        PerformancePage.Refresh(state);
         SettingsPage.Refresh(state);
         foreach (var g in NavGroups)
         foreach (var i in g.Items)

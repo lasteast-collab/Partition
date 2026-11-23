@@ -406,6 +406,29 @@ public sealed class SettingsPageViewModel : PageViewModel
         }
     }
 
+    public bool MonitorEnabled
+    {
+        get => Settings.MonitorEnabled;
+        set { if (Settings.MonitorEnabled == value) return; Settings.MonitorEnabled = value; Save(); OnPropertyChanged(); MonitorChanged?.Invoke(); }
+    }
+
+    public IReadOnlyList<int> MonitorIntervals { get; } = new[] { 10, 30, 60, 240 };
+    public int MonitorIntervalMinutes
+    {
+        get => Settings.MonitorIntervalMinutes;
+        set { if (Settings.MonitorIntervalMinutes == value) return; Settings.MonitorIntervalMinutes = value; Save(); OnPropertyChanged(); MonitorChanged?.Invoke(); }
+    }
+
+    public IReadOnlyList<int> LowSpaceOptions { get; } = new[] { 5, 10, 15, 20 };
+    public int LowSpacePercent
+    {
+        get => Settings.LowSpacePercent;
+        set { if (Settings.LowSpacePercent == value) return; Settings.LowSpacePercent = value; Save(); OnPropertyChanged(); }
+    }
+
+    /// <summary>Raised when monitoring settings change, so the monitor restarts with them.</summary>
+    public event Action? MonitorChanged;
+
     public string BackupFolder => Loc.Instance.Format("Settings.BackupFolder",
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasteast", "Partition", "backups"));
 

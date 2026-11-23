@@ -69,6 +69,23 @@
 
             <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                 <StackPanel>
+                    <TextBlock Text="{ui:Tr Settings.Monitoring}" Style="{StaticResource Text.Section}" />
+                    <CheckBox IsChecked="{Binding MonitorEnabled}" Content="{ui:Tr Settings.MonitorEnabled}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="{ui:Tr Settings.MonitorInterval}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <ComboBox ItemsSource="{Binding MonitorIntervals}" SelectedItem="{Binding MonitorIntervalMinutes}" MinWidth="80" AutomationProperties.Name="{ui:Tr Settings.MonitorInterval}">
+                            <ComboBox.ItemTemplate><DataTemplate><TextBlock><Run Text="{Binding Mode=OneWay}" /><Run Text=" min" /></TextBlock></DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock Text="{ui:Tr Settings.LowSpace}" VerticalAlignment="Center" Margin="16,0,8,0" />
+                        <ComboBox ItemsSource="{Binding LowSpaceOptions}" SelectedItem="{Binding LowSpacePercent}" MinWidth="70" AutomationProperties.Name="{ui:Tr Settings.LowSpace}">
+                            <ComboBox.ItemTemplate><DataTemplate><TextBlock><Run Text="{Binding Mode=OneWay}" /><Run Text=" %" /></TextBlock></DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
                     <TextBlock Text="{ui:Tr Settings.Logs}" Style="{StaticResource Text.Section}" />
                     <TextBox Text="{Binding LogDirectory, Mode=OneWay}" Style="{StaticResource Text.Selectable}" Margin="0,0,0,8" />
                     <Button Style="{StaticResource Button.Outline}" HorizontalAlignment="Left" Command="{Binding OpenLogFolderCommand}"

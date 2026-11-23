@@ -56,7 +56,8 @@ public partial class App : Application
             demo ? null : d => new Lasteast.Storage.Windows.Operations.PhysicalDiskDevice(d, writable: false),
             demo ? null : new Lasteast.Storage.Windows.Operations.WindowsBootTools(_log),
             demo ? null : new Lasteast.Storage.Windows.Operations.WinPeRescueMediaBuilder(),
-            Lasteast.Storage.Windows.Operations.PartitionTableBackupService.DefaultRoot);
+            Lasteast.Storage.Windows.Operations.PartitionTableBackupService.DefaultRoot,
+            demo ? null : new Lasteast.Storage.Windows.Health.WindowsHealthProvider(_log));
         var window = new MainWindow(vm, theme);
         vm.RequestShutdown += (_, _) => Shutdown();
         MainWindow = window;

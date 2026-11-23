@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>Lasteast.Core</RootNamespace>
   </PropertyGroup>

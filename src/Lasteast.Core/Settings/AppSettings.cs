@@ -22,6 +22,14 @@ public sealed class AppSettings
     public List<string> Exclusions { get; set; } = new();
     /// <summary>Cleanup moves files to the Recycle Bin unless the user switches this off.</summary>
     public bool CleanupToRecycleBin { get; set; } = true;
+
+    /// <summary>Background checks of free space and drive health while the app is open.</summary>
+    public bool MonitorEnabled { get; set; } = true;
+    public int MonitorIntervalMinutes { get; set; } = 30;
+    /// <summary>Alert when a volume has less free space than this percentage.</summary>
+    public int LowSpacePercent { get; set; } = 10;
+    /// <summary>Alert above this temperature (°C); 0 = defaults (SSD 70, HDD 55).</summary>
+    public int TemperatureAlertCelsius { get; set; }
 }
 
 /// <summary>

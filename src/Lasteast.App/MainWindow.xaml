@@ -32,6 +32,8 @@
         <DataTemplate DataType="{x:Type vm:BootRecoveryPageViewModel}"><views:BootRecoveryView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:AccountRecoveryPageViewModel}"><views:AccountRecoveryView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:BackupPageViewModel}"><views:BackupView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:DiskHealthPageViewModel}"><views:DiskHealthView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:PerformanceLabPageViewModel}"><views:PerformanceLabView /></DataTemplate>
 
         <!-- Sidebar item -->
         <DataTemplate x:Key="NavItemTemplate" DataType="{x:Type vm:NavItem}">
@@ -142,6 +144,23 @@
                         <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE711;" FontSize="12" Foreground="{DynamicResource Brush.ErrorFg}" />
                     </Button>
                     <TextBlock Text="{Binding ErrorText}" Foreground="{DynamicResource Brush.ErrorFg}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+            <Border Background="{DynamicResource Brush.SampleBg}" Padding="16,8"
+                    Visibility="{Binding HasAlerts, Converter={StaticResource BoolToVis}}">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Style="{StaticResource Button.Base}" Padding="6,2" Command="{Binding DismissAlertsCommand}"
+                            AutomationProperties.Name="{ui:Tr Common.Dismiss}">
+                        <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE711;" FontSize="12" Foreground="{DynamicResource Brush.SampleFg}" />
+                    </Button>
+                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Text.Icon}" Text="&#xE7BA;" Foreground="{DynamicResource Brush.SampleFg}" Margin="0,2,8,0" VerticalAlignment="Top" />
+                    <ItemsControl ItemsSource="{Binding Alerts}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:AlertViewModel}">
+                                <TextBlock Text="{Binding Text}" Foreground="{DynamicResource Brush.SampleFg}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </DockPanel>
             </Border>
         </StackPanel>
