@@ -246,4 +246,72 @@ public static partial class LayoutSimulator
             ? d with { Style = PartitionStyle.Gpt, UsableStartBytes = GptHeadBytes(d), UsableEndBytes = d.SizeBytes - GptTailBytes(d) }
             : d with { Style = PartitionStyle.Mbr, UsableStartBytes = 0, UsableEndBytes = Math.Min(d.SizeBytes, Mbr2TiB) };
     }
+
+    private static DiskInfo ApplySetActive(DiskInfo d, PartitionInfo target, List<ValidationIssue> issues)
+    {
+        if (d.Style != PartitionStyle.Mbr) return Fail(issues, "Attr.Error.MbrOnly", d);
+        if (target.Role == PartitionRole.MbrLogical) return Fail(issues, "Attr.Error.Logical", d);
+        if (target.MbrActive) return Fail(issues, "Op.Error.NoChange", d);
+        // Changing which partition starts the running computer could leave it unable to boot.
+        if (d.IsBootDisk || d.IsWindowsDisk) return Fail(issues, "Attr.Error.BootDisk", d);
+        Warn(issues, "Attr.Warn.Active");
+        return d with { Partitions = d.Partitions.Select(p => ReferenceEquals(p, target) ? p with { MbrActive = true } : p.MbrActive ? p with { MbrActive = false } : p).ToList() };
+    }
+
+    private static readonly (byte Visible, byte Hidden)[] MbrHidePairs = { (0x07, 0x17), (0x0C, 0x1C), (0x0B, 0x1B), (0x0E, 0x1E), (0x06, 0x16), (0x04, 0x14), (0x01, 0x11) };
+
+    public static byte? MbrHiddenCounterpart(byte type, bool hide) =>
+        hide ? MbrHidePairs.FirstOrDefault(x => x.Visible == type).Hidden is var h and > 0 ? h : null
+             : MbrHidePairs.FirstOrDefault(x => x.Hidden == type).Visible is var v and > 0 ? v : null;
+
+    private static DiskInfo ApplySetHidden(DiskInfo d, PartitionInfo target, SetHiddenOp h, bool protectedPartition, List<ValidationIssue> issues)
+    {
+        if (protectedPartition) return Fail(issues, "Op.Error.Protected", d);
+        if (target.IsHidden == h.Hidden) return Fail(issues, "Op.Error.NoChange", d);
+        PartitionInfo changed;
+        if (d.Style == PartitionStyle.Gpt)
+        {
+            if (target.Role != PartitionRole.BasicData) return Fail(issues, "Attr.Error.HideType", d);
+            var attrs = h.Hidden ? target.GptAttributes | PartitionTypes.GptAttributeHidden | PartitionTypes.GptAttributeNoDriveLetter
+                                 : target.GptAttributes & ~(PartitionTypes.GptAttributeHidden | PartitionTypes.GptAttributeNoDriveLetter);
+            changed = target with { GptAttributes = attrs };
+        }
+        else
+        {
+            if (target.MbrType is not { } t || MbrHiddenCounterpart(t, h.Hidden) is not { } nt) return Fail(issues, "Attr.Error.HideType", d);
+            changed = target with { MbrType = nt };
+        }
+        if (h.Hidden && target.Volume?.DriveLetter is not null) Warn(issues, "Attr.Warn.HideLetter");
+        Warn(issues, h.Hidden ? "Attr.Warn.Hidden" : "Attr.Warn.Shown");
+        var v = changed.Volume;
+        if (h.Hidden && v is not null) changed = changed with { Volume = v with { DriveLetter = null, MountPoints = Array.Empty<string>() } };
+        return d with { Partitions = d.Partitions.Select(p => ReferenceEquals(p, target) ? changed : p).ToList() };
+    }
+
+    private static DiskInfo ApplySetType(DiskInfo d, PartitionInfo target, SetTypeOp t, bool protectedPartition, List<ValidationIssue> issues)
+    {
+        if (protectedPartition) return Fail(issues, "Op.Error.Protected", d);
+        if (target.Role is PartitionRole.EfiSystem or PartitionRole.MicrosoftReserved or PartitionRole.LdmData or PartitionRole.LdmMetadata or PartitionRole.StorageSpaces)
+            return Fail(issues, "Op.Error.Protected", d);
+        // Windows Recovery on the running Windows' disk: changing its type disables the recovery environment.
+        if (target.Role == PartitionRole.Recovery && d.IsWindowsDisk) return Fail(issues, "Op.Error.Protected", d);
+        PartitionInfo changed;
+        if (d.Style == PartitionStyle.Gpt)
+        {
+            if (t.GptType is not { } g || g == Guid.Empty) return Fail(issues, "Attr.Error.Type", d);
+            if (g == target.GptType) return Fail(issues, "Op.Error.NoChange", d);
+            if (g == PartitionTypes.GptEfiSystem || g == PartitionTypes.GptMicrosoftReserved || g == PartitionTypes.GptLdmData || g == PartitionTypes.GptLdmMetadata)
+                return Fail(issues, "Attr.Error.TypeNotAllowed", d);
+            changed = target with { GptType = g, Role = PartitionTypes.Classify(g) };
+        }
+        else
+        {
+            if (t.MbrType is not { } b || b == 0) return Fail(issues, "Attr.Error.Type", d);
+            if (b == target.MbrType) return Fail(issues, "Op.Error.NoChange", d);
+            if (PartitionTypes.IsMbrExtended(b) || target.Role == PartitionRole.MbrExtended || b == 0xEE || b == 0x42) return Fail(issues, "Attr.Error.TypeNotAllowed", d);
+            changed = target with { MbrType = b, Role = target.Role == PartitionRole.MbrLogical ? PartitionRole.MbrLogical : PartitionTypes.Classify(b, false) };
+        }
+        Warn(issues, "Attr.Warn.Type");
+        return d with { Partitions = d.Partitions.Select(p => ReferenceEquals(p, target) ? changed : p).ToList() };
+    }
 }

@@ -2,7 +2,7 @@ using Lasteast.Core.Models;
 
 namespace Lasteast.Core.Operations;
 
-public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition, RestoreTable, RepairBoot, Initialize }
+public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition, RestoreTable, RepairBoot, Initialize, SetActive, SetHidden, SetType }
 
 /// <summary>
 /// A planned change to one disk. Operations are pure data: they describe intent and are only
@@ -137,6 +137,27 @@ public sealed record InitializeDiskOp(int DiskNumber, PartitionStyle Style) : Di
 {
     public override OperationKind Kind => OperationKind.Initialize;
     public override int EstimatedSeconds => 3;
+}
+
+/// <summary>MBR only: marks the partition the BIOS starts from (clears the flag on the others).</summary>
+public sealed record SetActiveOp(int DiskNumber, ulong OffsetBytes) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.SetActive;
+    public override int EstimatedSeconds => 2;
+}
+
+/// <summary>Hides a partition from Windows (no drive letter, not mounted) or shows it again. Data is untouched.</summary>
+public sealed record SetHiddenOp(int DiskNumber, ulong OffsetBytes, bool Hidden) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.SetHidden;
+    public override int EstimatedSeconds => 2;
+}
+
+/// <summary>Changes the partition type ID (GPT type GUID or MBR type byte). Data is untouched.</summary>
+public sealed record SetTypeOp(int DiskNumber, ulong OffsetBytes, Guid? GptType, byte? MbrType) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.SetType;
+    public override int EstimatedSeconds => 2;
 }
 
 public enum IssueLevel { Error, Warning }

@@ -246,6 +246,12 @@
                                     <Button Content="{ui:Tr Editor.MoveToEnd}" Command="{Binding MoveToEndCommand}" Style="{StaticResource Button.Outline}" />
                                 </StackPanel>
                             </StackPanel>
+                            <StackPanel Visibility="{Binding ShowType, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
+                                <TextBlock Text="{ui:Tr Prop.Type}" Style="{StaticResource Text.Muted}" />
+                                <ComboBox ItemsSource="{Binding TypeOptions}" SelectedItem="{Binding SelectedType}" MinWidth="0" AutomationProperties.Name="{ui:Tr Prop.Type}">
+                                    <ComboBox.ItemTemplate><DataTemplate DataType="{x:Type vm:TypeChoice}"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </StackPanel>
                             <StackPanel Visibility="{Binding ShowFileSystem, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
                                 <TextBlock Text="{ui:Tr Prop.FileSystem}" Style="{StaticResource Text.Muted}" />
                                 <ComboBox ItemsSource="{Binding FileSystemOptions}" SelectedItem="{Binding FileSystem}" MinWidth="0"

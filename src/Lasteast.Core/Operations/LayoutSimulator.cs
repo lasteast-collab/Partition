@@ -90,6 +90,9 @@ public static partial class LayoutSimulator
             SetLabelOp x => x.OffsetBytes,
             SetDriveLetterOp x => x.OffsetBytes,
             MovePartitionOp x => x.OffsetBytes,
+            SetActiveOp x => x.OffsetBytes,
+            SetHiddenOp x => x.OffsetBytes,
+            SetTypeOp x => x.OffsetBytes,
             _ => throw new NotSupportedException(op.GetType().Name),
         };
         var target = d.Partitions.FirstOrDefault(p => p.OffsetBytes == offset && p.Role != PartitionRole.MbrExtended);
@@ -109,6 +112,9 @@ public static partial class LayoutSimulator
             SetLabelOp l => ApplyLabel(l),
             SetDriveLetterOp s => ApplyLetter(s),
             MovePartitionOp m => ApplyMove(d, target, m, isWindows, isFirmwareSystem, issues),
+            SetActiveOp a => ApplySetActive(d, target, issues),
+            SetHiddenOp h => ApplySetHidden(d, target, h, isWindows || isFirmwareSystem || isSpecialRole, issues),
+            SetTypeOp t => ApplySetType(d, target, t, isWindows || isFirmwareSystem, issues),
             _ => d,
         };
 

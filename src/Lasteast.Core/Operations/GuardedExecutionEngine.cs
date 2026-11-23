@@ -297,6 +297,20 @@ public sealed class GuardedExecutionEngine
             case InitializeDiskOp init:
                 if (actual.Style != init.Style) return $"partition style {actual.Style} != {init.Style}";
                 return null;
+            case SetActiveOp sa:
+                if (At(actual, sa.OffsetBytes)?.MbrActive != true) return "partition is not active";
+                if (actual.Partitions.Count(p => p.MbrActive) != 1) return "more than one active partition";
+                break;
+            case SetHiddenOp sh:
+                if (At(actual, sh.OffsetBytes)?.IsHidden != sh.Hidden) return $"hidden != {sh.Hidden}";
+                break;
+            case SetTypeOp st:
+            {
+                var p = At(actual, st.OffsetBytes);
+                if (st.GptType is { } g && p?.GptType != g) return $"type {p?.GptType} != {g}";
+                if (st.MbrType is { } b && p?.MbrType != b) return $"type {p?.MbrType:X2} != {b:X2}";
+                break;
+            }
             case ConvertStyleOp cs:
                 if (actual.Style != cs.Target) return $"partition style {actual.Style} != {cs.Target}";
                 break;
@@ -339,6 +353,8 @@ public sealed class GuardedExecutionEngine
             SetDriveLetterOp s => s.OffsetBytes,
             MovePartitionOp m => m.NewOffsetBytes,
             RecoverPartitionOp rp => rp.OffsetBytes,
+            SetHiddenOp sh => sh.OffsetBytes,
+            SetTypeOp st => st.OffsetBytes,
             _ => ulong.MaxValue,
         };
         // (After a clone every destination partition is checked here: none is "touched", all must match.)

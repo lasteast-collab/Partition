@@ -37,6 +37,9 @@ public static class OperationText
             PrepareBootOp b => Loc.Instance.Format("OpText.PrepareBoot", disk),
             RestoreTableOp rt => Loc.Instance.Format("OpText.RestoreTable", disk, rt.Created.LocalDateTime.ToString("g")),
             RepairBootOp => Loc.Instance.Format("OpText.RepairBoot", disk),
+            SetActiveOp a => Loc.Instance.Format("OpText.SetActive", Target(a.OffsetBytes), disk),
+            SetHiddenOp h => Loc.Instance.Format(h.Hidden ? "OpText.Hide" : "OpText.Unhide", Target(h.OffsetBytes), disk),
+            SetTypeOp t => Loc.Instance.Format("OpText.SetType", Target(t.OffsetBytes), t.GptType?.ToString() ?? $"0x{t.MbrType:X2}", disk),
             InitializeDiskOp i => Loc.Instance.Format("OpText.Initialize", disk, i.Style == PartitionStyle.Gpt ? "GPT" : "MBR"),
             RecoverPartitionOp rp => Loc.Instance.Format("OpText.Recover", rp.FileSystem, Size(rp.SizeBytes), Size(rp.OffsetBytes), disk),
             SetDriveLetterOp s => s.Letter is { } nl
@@ -49,9 +52,29 @@ public static class OperationText
 
 public sealed record IssueViewModel(string Text, bool IsError);
 
+/// <summary>Partition types offered by "Change type" (the protected system types are deliberately absent).</summary>
+public sealed record TypeChoice(string Name, Guid? Gpt, byte? Mbr)
+{
+    public override string ToString() => Name;
+    public static readonly IReadOnlyList<TypeChoice> GptTypes = new[]
+    {
+        new TypeChoice("Basic data (Windows) — EBD0A0A2…", PartitionTypes.GptBasicData, null),
+        new TypeChoice("Windows Recovery — DE94BBA4…", PartitionTypes.GptWindowsRecovery, null),
+        new TypeChoice("Linux filesystem — 0FC63DAF…", PartitionTypes.GptLinuxFilesystem, null),
+        new TypeChoice("Linux swap — 0657FD6D…", PartitionTypes.GptLinuxSwap, null),
+        new TypeChoice("Linux LVM — E6D6D379…", PartitionTypes.GptLinuxLvm, null),
+    };
+    public static readonly IReadOnlyList<TypeChoice> MbrTypes = new[]
+    {
+        new TypeChoice("0x07 NTFS / exFAT", null, 0x07), new TypeChoice("0x0C FAT32 (LBA)", null, 0x0C), new TypeChoice("0x0B FAT32", null, 0x0B),
+        new TypeChoice("0x27 Windows Recovery", null, 0x27), new TypeChoice("0x83 Linux", null, 0x83), new TypeChoice("0x82 Linux swap", null, 0x82),
+        new TypeChoice("0x8E Linux LVM", null, 0x8E),
+    };
+}
+
 public sealed record ActionItem(string Title, string Glyph, bool IsDestructive, RelayCommand Command);
 
-public enum EditorMode { Create, Resize, Format, Label, Letter, Delete, Move, ConvertToGpt, ConvertToMbr, InitGpt, InitMbr }
+public enum EditorMode { Create, Resize, Format, Label, Letter, Delete, Move, ConvertToGpt, ConvertToMbr, InitGpt, InitMbr, SetActive, Hide, Unhide, SetType }
 
 /// <summary>
 /// Inline editor for one operation on the selected segment. Every change re-validates against the
@@ -122,6 +145,10 @@ public sealed class OperationEditorViewModel : ObservableObject
     public bool ShowLabel => Mode is EditorMode.Create or EditorMode.Format or EditorMode.Label;
     public bool ShowLetter => Mode is EditorMode.Create or EditorMode.Letter;
     public bool ShowOffset => Mode is EditorMode.Move;
+    public bool ShowType => Mode is EditorMode.SetType;
+    private TypeChoice? _typeChoice;
+    public IReadOnlyList<TypeChoice> TypeOptions => _segment.Disk.Disk.Style == PartitionStyle.Gpt ? TypeChoice.GptTypes : TypeChoice.MbrTypes;
+    public TypeChoice? SelectedType { get => _typeChoice; set { if (Set(ref _typeChoice, value)) Revalidate(); } }
     public bool IsDestructive => Mode is EditorMode.Delete or EditorMode.Format;
     public string OffsetText { get => _offsetText; set { if (Set(ref _offsetText, value)) Revalidate(); } }
     public RelayCommand MoveToStartCommand { get; }
@@ -206,6 +233,12 @@ public sealed class OperationEditorViewModel : ObservableObject
                     ? new MovePartitionOp(disk, p!.OffsetBytes, mib * LayoutSimulator.MiB, p.SizeBytes) : null;
             case EditorMode.ConvertToGpt: return new ConvertStyleOp(disk, PartitionStyle.Gpt);
             case EditorMode.ConvertToMbr: return new ConvertStyleOp(disk, PartitionStyle.Mbr);
+            case EditorMode.SetActive: return new SetActiveOp(disk, p!.OffsetBytes);
+            case EditorMode.Hide: return new SetHiddenOp(disk, p!.OffsetBytes, true);
+            case EditorMode.Unhide: return new SetHiddenOp(disk, p!.OffsetBytes, false);
+            case EditorMode.SetType:
+                return _typeChoice is null ? null : _segment.Disk.Disk.Style == PartitionStyle.Gpt
+                    ? new SetTypeOp(disk, p!.OffsetBytes, _typeChoice.Gpt, null) : new SetTypeOp(disk, p!.OffsetBytes, null, _typeChoice.Mbr);
             case EditorMode.InitGpt: return new InitializeDiskOp(disk, PartitionStyle.Gpt);
             case EditorMode.InitMbr: return new InitializeDiskOp(disk, PartitionStyle.Mbr);
         }

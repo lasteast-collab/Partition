@@ -94,6 +94,10 @@ public sealed class DashboardViewModel : PageViewModel
         A(EditorMode.Move, "\uE7C2");
         A(EditorMode.Label, "\uE8AC");
         A(EditorMode.Letter, "\uE8B7");
+        var part = _selected.Partition!;
+        A(part.IsHidden ? EditorMode.Unhide : EditorMode.Hide, part.IsHidden ? "\uE7B3" : "\uED1A");
+        if (style == PartitionStyle.Mbr && !part.MbrActive) A(EditorMode.SetActive, "\uE7E8");
+        A(EditorMode.SetType, "\uE8EC");
         Convert();
         A(EditorMode.Format, "\uE7A8", destructive: true);
         A(EditorMode.Delete, "\uE74D", destructive: true);

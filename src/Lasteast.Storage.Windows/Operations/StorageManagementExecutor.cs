@@ -49,6 +49,19 @@ public sealed class StorageManagementExecutor : IOperationExecutor
                 case ResizePartitionOp r: Resize(svc, disk, r); break;
                 case SetLabelOp l: SetLabel(VolumePathOf(disk, l.OffsetBytes), l.Label); break;
                 case SetDriveLetterOp s: SetLetter(disk, s); break;
+                case SetActiveOp a:
+                    Invoke(PartitionAt(svc, disk, a.OffsetBytes), "SetAttributes", new Dictionary<string, object?> { ["IsActive"] = true });
+                    break;
+                case SetHiddenOp h:
+                    Invoke(PartitionAt(svc, disk, h.OffsetBytes), "SetAttributes", disk.Style == PartitionStyle.Gpt
+                        ? new Dictionary<string, object?> { ["IsHidden"] = h.Hidden, ["NoDefaultDriveLetter"] = h.Hidden }
+                        : new Dictionary<string, object?> { ["IsHidden"] = h.Hidden });
+                    break;
+                case SetTypeOp t:
+                    Invoke(PartitionAt(svc, disk, t.OffsetBytes), "SetAttributes", t.GptType is { } g
+                        ? new Dictionary<string, object?> { ["GptType"] = "{" + g + "}" }
+                        : new Dictionary<string, object?> { ["MbrType"] = (int)t.MbrType!.Value });
+                    break;
                 case InitializeDiskOp i:
                 {
                     dynamic d = QueryFirst(svc, $"SELECT * FROM MSFT_Disk WHERE Number = {disk.Number}")

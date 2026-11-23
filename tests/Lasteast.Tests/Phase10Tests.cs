@@ -133,3 +133,55 @@ public static class Phase10Tests
         Assert.Equal(null, GuardedExecutionEngine.Verify(new InitializeDiskOp(9, PartitionStyle.Gpt), sim.After, after));
     }
 }
+
+public static class AttributeTests
+{
+    private static bool Err(SimulationResult r, string key) => r.AllIssues.Any(i => i.IsError && i.Key == key);
+
+    [Test]
+    public static void Set_active_only_on_mbr_data_disks_and_clears_the_others()
+    {
+        var inv = Fixtures.Real();
+        var d1 = Fixtures.Disk(inv, 1);
+        var e = d1.Partitions[1];
+        var sim = LayoutSimulator.Simulate(d1, new[] { new SetActiveOp(1, e.OffsetBytes) });
+        Assert.True(sim.IsValid, string.Join(",", sim.AllIssues.Select(i => i.Key)));
+        Assert.Equal(1, sim.After.Partitions.Count(p => p.MbrActive));
+        Assert.True(Err(LayoutSimulator.Simulate(Fixtures.Disk(inv, 0), new[] { new SetActiveOp(0, Fixtures.Disk(inv, 0).Partitions[2].OffsetBytes) }), "Attr.Error.MbrOnly"));
+        Assert.Equal(null, GuardedExecutionEngine.Verify(new SetActiveOp(1, e.OffsetBytes), sim.After, sim.After));
+    }
+
+    [Test]
+    public static void Hide_toggles_mbr_type_and_gpt_attribute_and_protects_windows()
+    {
+        var inv = Fixtures.Real();
+        var d1 = Fixtures.Disk(inv, 1);
+        var d = d1.Partitions[0];
+        var sim = LayoutSimulator.Simulate(d1, new[] { new SetHiddenOp(1, d.OffsetBytes, true) });
+        Assert.True(sim.IsValid);
+        Assert.Equal((byte)0x17, sim.After.Partitions[0].MbrType);
+        Assert.True(sim.After.Partitions[0].IsHidden);
+        var back = LayoutSimulator.Simulate(sim.After, new[] { new SetHiddenOp(1, d.OffsetBytes, false) });
+        Assert.Equal((byte)0x07, back.After.Partitions[0].MbrType);
+        var d0 = Fixtures.Disk(inv, 0);
+        Assert.True(Err(LayoutSimulator.Simulate(d0, new[] { new SetHiddenOp(0, Fixtures.Letter(inv, 'C').OffsetBytes, true) }), "Op.Error.Protected"));
+        var gptData = d0 with { IsWindowsDisk = false, Partitions = d0.Partitions.Select(p => p.Volume?.IsWindowsVolume == true ? p with { Volume = p.Volume with { IsWindowsVolume = false } } : p).ToList() };
+        var g = LayoutSimulator.Simulate(gptData, new[] { new SetHiddenOp(0, Fixtures.Letter(inv, 'C').OffsetBytes, true) });
+        Assert.True(g.IsValid && g.After.Partitions.Single(p => p.OffsetBytes == Fixtures.Letter(inv, 'C').OffsetBytes).IsHidden);
+    }
+
+    [Test]
+    public static void Change_type_refuses_system_types()
+    {
+        var inv = Fixtures.Real();
+        var d1 = Fixtures.Disk(inv, 1);
+        var ok = LayoutSimulator.Simulate(d1, new[] { new SetTypeOp(1, d1.Partitions[0].OffsetBytes, null, 0x83) });
+        Assert.True(ok.IsValid && ok.After.Partitions[0].Role == PartitionRole.Linux);
+        Assert.True(Err(LayoutSimulator.Simulate(d1, new[] { new SetTypeOp(1, d1.Partitions[0].OffsetBytes, null, 0x05) }), "Attr.Error.TypeNotAllowed"));
+        var d0 = Fixtures.Disk(inv, 0);
+        var rec = d0.Partitions.Single(p => p.Role == PartitionRole.Recovery);
+        Assert.True(Err(LayoutSimulator.Simulate(d0, new[] { new SetTypeOp(0, rec.OffsetBytes, PartitionTypes.GptBasicData, null) }), "Op.Error.Protected"));
+        var esp = d0.Partitions.Single(p => p.Role == PartitionRole.EfiSystem);
+        Assert.True(Err(LayoutSimulator.Simulate(d0, new[] { new SetTypeOp(0, esp.OffsetBytes, PartitionTypes.GptBasicData, null) }), "Op.Error.Protected"));
+    }
+}
