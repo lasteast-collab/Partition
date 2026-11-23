@@ -77,6 +77,7 @@ public static class RecoveryIntegrationTests
         File.WriteAllText($"{letter}:\\proof.txt", "I was lost and now I am found");
         var before = await vd.ReadAsync();
         var p = before.Partitions.Single(x => x.Volume?.Label == "LE-LOST");
+        VolumeLocks.Acquire(new[] { p.Volume!.VolumeGuidPath }, dismount: true).Dispose(); // the file existed on disk before the accident
         VirtualDisk.DiskPart($"select disk {vd.Number}", "select partition 1", "delete partition override");
         await Task.Delay(1500);
 
