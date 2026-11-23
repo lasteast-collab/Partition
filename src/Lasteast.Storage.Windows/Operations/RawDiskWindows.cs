@@ -468,6 +468,33 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
                 });
                 await Task.Delay(2000, CancellationToken.None);
                 break;
+            case Lasteast.Core.Operations.RepairBootSectorOp rb:
+            {
+                var part = liveDisk.Partitions.FirstOrDefault(p => p.OffsetBytes == rb.OffsetBytes)
+                           ?? throw new Lasteast.Core.Operations.OperationFailedException("Op.Error.NotFound");
+                await Raw(() =>
+                {
+                    // only this partition's volume is locked and dismounted; Windows mounts it afresh after the repair
+                    using var lk = part.Volume?.VolumeGuidPath is { } g && g.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase)
+                        ? VolumeLocks.Acquire(new[] { g }, dismount: true) : null;
+                    using var dev = new PhysicalDiskDevice(liveDisk, writable: true);
+                    var vol = new Lasteast.Core.Recovery.OffsetDevice(dev, (long)part.OffsetBytes, (long)part.SizeBytes);
+                    var diag = Lasteast.Core.Recovery.BootSectorRepair.Diagnose(vol); // re-checked on the live disk, never trusted from the preview
+                    if (diag.State != Lasteast.Core.Recovery.BootSectorState.Repairable || diag.FileSystem != rb.FileSystem)
+                        throw new RawOperationException("BootFix.Error.NotRepairable", $"{diag.State} {diag.FileSystem}");
+                    // keep the sectors being replaced so the repair can be undone by hand
+                    var folder = Path.Combine(Lasteast.Core.AppPaths.Backups, $"bootsector-disk{liveDisk.Number}-{part.OffsetBytes}-{DateTime.Now:yyyyMMdd-HHmmss-fff}");
+                    Directory.CreateDirectory(folder);
+                    File.WriteAllBytes(Path.Combine(folder, "replaced-sectors.bin"), Lasteast.Core.Recovery.BootSectorRepair.Current(dev, (long)part.OffsetBytes, diag));
+                    File.WriteAllText(Path.Combine(folder, "README.txt"),
+                        $"Disk {liveDisk.Number} ({liveDisk.Model}, {liveDisk.SerialNumber}), partition at byte {part.OffsetBytes}.\r\n" +
+                        $"replaced-sectors.bin holds the {diag.BytesToWrite} bytes that were at the start of the partition before the {diag.FileSystem} boot sector was restored from its backup ({diag.Evidence}).\r\n");
+                    _log.Info($"Boot sector repair on disk {liveDisk.Number} @ {part.OffsetBytes}: {diag.FileSystem}, {diag.Evidence}; previous sectors saved to {folder}");
+                    Lasteast.Core.Recovery.BootSectorRepair.Apply(dev, (long)part.OffsetBytes, diag);
+                });
+                await Task.Delay(2000, CancellationToken.None);
+                break;
+            }
             case Lasteast.Core.Operations.RestoreTableOp rt:
                 await Raw(() =>
                 {

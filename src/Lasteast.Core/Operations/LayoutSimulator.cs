@@ -93,6 +93,7 @@ public static partial class LayoutSimulator
             SetActiveOp x => x.OffsetBytes,
             SetHiddenOp x => x.OffsetBytes,
             SetTypeOp x => x.OffsetBytes,
+            RepairBootSectorOp x => x.OffsetBytes,
             _ => throw new NotSupportedException(op.GetType().Name),
         };
         var target = d.Partitions.FirstOrDefault(p => p.OffsetBytes == offset && p.Role != PartitionRole.MbrExtended);
@@ -115,6 +116,7 @@ public static partial class LayoutSimulator
             SetActiveOp a => ApplySetActive(d, target, issues),
             SetHiddenOp h => ApplySetHidden(d, target, h, isWindows || isFirmwareSystem || isSpecialRole, issues),
             SetTypeOp t => ApplySetType(d, target, t, isWindows || isFirmwareSystem, issues),
+            RepairBootSectorOp b => ApplyRepairBootSector(d, target, b, isWindows || isFirmwareSystem || isSpecialRole, issues),
             _ => d,
         };
 

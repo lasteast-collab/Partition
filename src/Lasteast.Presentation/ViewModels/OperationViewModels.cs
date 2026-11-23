@@ -38,6 +38,7 @@ public static class OperationText
             RestoreTableOp rt => Loc.Instance.Format("OpText.RestoreTable", disk, rt.Created.LocalDateTime.ToString("g")),
             RepairBootOp => Loc.Instance.Format("OpText.RepairBoot", disk),
             SetActiveOp a => Loc.Instance.Format("OpText.SetActive", Target(a.OffsetBytes), disk),
+            RepairBootSectorOp rb => Loc.Instance.Format("OpText.RepairBootSector", Target(rb.OffsetBytes), disk, rb.FileSystem),
             SetHiddenOp h => Loc.Instance.Format(h.Hidden ? "OpText.Hide" : "OpText.Unhide", Target(h.OffsetBytes), disk),
             SetTypeOp t => Loc.Instance.Format("OpText.SetType", Target(t.OffsetBytes), t.GptType?.ToString() ?? $"0x{t.MbrType:X2}", disk),
             InitializeDiskOp i => Loc.Instance.Format("OpText.Initialize", disk, i.Style == PartitionStyle.Gpt ? "GPT" : "MBR"),

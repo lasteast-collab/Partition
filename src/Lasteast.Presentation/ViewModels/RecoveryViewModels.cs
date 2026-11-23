@@ -39,6 +39,57 @@ public sealed class FoundPartitionViewModel
     public RelayCommand BrowseCommand { get; }
 }
 
+/// <summary>
+/// A partition that is in the table but that Windows cannot read (RAW): checks its boot sector against the file
+/// system's own backup and, when that backup is valid, queues the repair.
+/// </summary>
+public sealed class UnreadablePartitionViewModel : ObservableObject
+{
+    private readonly DiskInfo _disk;
+    private readonly PartitionInfo _part;
+    private readonly DiskReader? _reader;
+    private readonly Func<DiskOperation, bool> _queue;
+    private string? _result;
+    private RepairBootSectorOp? _op;
+
+    public UnreadablePartitionViewModel(DiskInfo disk, PartitionInfo part, DiskReader? reader, Func<DiskOperation, bool> queue)
+    {
+        _disk = disk;
+        _part = part;
+        _reader = reader;
+        _queue = queue;
+        Title = (part.Volume?.DriveLetter is { } l ? $"{l}: · " : "") + $"{Size(part.SizeBytes)} · RAW · " + Loc.Instance.Format("LostP.At", Size(part.OffsetBytes));
+        CheckCommand = new AsyncRelayCommand(CheckAsync, ex => Result = ErrorText(ex));
+        RepairCommand = new RelayCommand(() => { if (_op is not null && !_queue(_op)) Result = L("BootFix.QueueFailed"); });
+    }
+
+    public string Title { get; }
+    public string? Result { get => _result; private set { Set(ref _result, value); OnPropertyChanged(nameof(HasResult)); } }
+    public bool HasResult => !string.IsNullOrEmpty(_result);
+    public bool CanRepair => _op is not null;
+    public AsyncRelayCommand CheckCommand { get; }
+    public RelayCommand RepairCommand { get; }
+
+    private async Task CheckAsync()
+    {
+        if (_reader is null) { Result = L("Rec.Unavailable"); return; }
+        Result = L("BootFix.Checking");
+        var d = await Task.Run(() =>
+        {
+            using var dev = _reader(_disk);
+            return BootSectorRepair.Diagnose(new OffsetDevice(dev, (long)_part.OffsetBytes, (long)_part.SizeBytes));
+        });
+        _op = d.State == BootSectorState.Repairable ? new RepairBootSectorOp(_disk.Number, _part.OffsetBytes, d.FileSystem!) : null;
+        OnPropertyChanged(nameof(CanRepair));
+        Result = d.State switch
+        {
+            BootSectorState.Repairable => Loc.Instance.Format("BootFix.Result.Repairable", d.FileSystem, d.Evidence, Size((ulong)d.BytesToWrite)),
+            BootSectorState.PrimaryValid => L("BootFix.Result.PrimaryValid"),
+            _ => L("BootFix.Result.NoBackup"),
+        };
+    }
+}
+
 /// <summary>Partition recovery: scan a disk for lost partitions and restore their table entries (spec module "Partition Recovery").</summary>
 public sealed class PartitionRecoveryPageViewModel : PageViewModel
 {
@@ -65,9 +116,28 @@ public sealed class PartitionRecoveryPageViewModel : PageViewModel
     public override string TitleKey => "Nav.PartitionRecovery";
     public ObservableCollection<DiskChoice> Disks { get; } = new();
     public ObservableCollection<FoundPartitionViewModel> Found { get; } = new();
+    /// <summary>Partitions of the chosen disk that are in the table but unreadable: the scan skips them (they are not lost).</summary>
+    public ObservableCollection<UnreadablePartitionViewModel> Unreadable { get; } = new();
+    public bool HasUnreadable => Unreadable.Count > 0;
     public AsyncRelayCommand ScanCommand { get; }
     public RelayCommand CancelCommand { get; }
-    public DiskChoice? Disk { get => _disk; set { if (Set(ref _disk, value)) { Found.Clear(); Status = null; } } }
+    public DiskChoice? Disk { get => _disk; set { if (Set(ref _disk, value)) { Found.Clear(); Status = null; FillUnreadable(); } } }
+
+    private void FillUnreadable()
+    {
+        Unreadable.Clear();
+        var disk = _inv?.Disks.FirstOrDefault(d => d.Number == _disk?.Number);
+        if (disk is not null && _inv is { IsSampleData: false })
+            foreach (var p in disk.Partitions.Where(p => p.Volume?.AccessError is not null && VolumeProblems.Classify(p.Volume.AccessErrorCode) != VolumeProblem.NoMedia
+                                                         && p.Role is PartitionRole.BasicData or PartitionRole.Unknown or PartitionRole.Other or PartitionRole.MbrLogical))
+                Unreadable.Add(new UnreadablePartitionViewModel(disk, p, _reader, op =>
+                {
+                    if (_queue.TryAdd(op).All(i => !i.IsError)) { _openPending(); return true; }
+                    Status = string.Join(" ", _queue.Preview(op).Where(i => i.IsError).Select(OperationText.Issue));
+                    return false;
+                }));
+        OnPropertyChanged(nameof(HasUnreadable));
+    }
     public bool DeepScan { get => _deep; set => Set(ref _deep, value); }
     public string? Status { get => _status; private set { Set(ref _status, value); OnPropertyChanged(nameof(HasStatus)); } }
     public bool HasStatus => !string.IsNullOrEmpty(_status);
@@ -103,7 +173,8 @@ public sealed class PartitionRecoveryPageViewModel : PageViewModel
                 new RelayCommand(() => { if (_queue.TryAdd(op).All(i => !i.IsError)) _openPending(); else Status = string.Join(" ", _queue.Preview(op).Where(i => i.IsError).Select(OperationText.Issue)); }),
                 new RelayCommand(() => _browse(source))));
         }
-        Status = found.Count == 0 ? L("LostP.None") : Loc.Instance.Format("LostP.FoundCount", found.Count);
+        Status = (found.Count == 0 ? L("LostP.None") : Loc.Instance.Format("LostP.FoundCount", found.Count))
+                 + (Unreadable.Count > 0 ? " " + L("LostP.SeeUnreadable") : "");
         Scanning = false;
     }
 
@@ -115,9 +186,11 @@ public sealed class PartitionRecoveryPageViewModel : PageViewModel
         Disks.Clear();
         foreach (var d in _inv?.Disks ?? Array.Empty<DiskInfo>())
             Disks.Add(new DiskChoice(d.Number, $"{L("Common.Disk")} {d.Number} — {d.Model} · {Size(d.SizeBytes)}"));
-        _disk = Disks.FirstOrDefault(x => x.Number == keep);
+        _disk = Disks.FirstOrDefault(x => x.Number == keep)
+                ?? Disks.FirstOrDefault(x => _inv!.Disks.First(d => d.Number == x.Number).Partitions.Any(p => p.Volume?.AccessError is not null));
         OnPropertyChanged(nameof(Disk));
         OnPropertyChanged(nameof(Available));
+        FillUnreadable();
     }
 }
 

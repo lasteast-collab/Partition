@@ -185,3 +185,53 @@ public static class AttributeTests
         Assert.True(Err(LayoutSimulator.Simulate(d0, new[] { new SetTypeOp(0, esp.OffsetBytes, PartitionTypes.GptBasicData, null) }), "Op.Error.Protected"));
     }
 }
+
+public static class BootSectorOpTests
+{
+    private static bool Err(SimulationResult r, string key) => r.AllIssues.Any(i => i.IsError && i.Key == key);
+
+    [Test]
+    public static void Boot_sector_repair_only_on_unreadable_data_volumes()
+    {
+        var inv = Fixtures.Real();
+        var d1 = Fixtures.Disk(inv, 1);
+        var p = d1.Partitions[0];
+        // readable volume: refused
+        Assert.True(Err(LayoutSimulator.Simulate(d1, new[] { new RepairBootSectorOp(1, p.OffsetBytes, "NTFS") }), "BootFix.Error.Readable"));
+        // RAW volume: allowed, and afterwards the volume is expected to read as NTFS
+        var raw = d1 with { Partitions = d1.Partitions.Select(x => x == p ? x with { Volume = x.Volume! with { FileSystem = null, AccessError = "RAW", AccessErrorCode = 1005 } } : x).ToList() };
+        var op = new RepairBootSectorOp(1, p.OffsetBytes, "NTFS");
+        var sim = LayoutSimulator.Simulate(raw, new[] { op });
+        Assert.True(sim.IsValid, string.Join(",", sim.AllIssues.Select(i => i.Key)));
+        Assert.True(sim.AllIssues.Any(i => i.Key == "BootFix.Warn.Sectors"));
+        Assert.Equal("NTFS", sim.After.Partitions[0].Volume?.FileSystem);
+        Assert.Equal(null, GuardedExecutionEngine.Verify(op, sim.After, sim.After));
+        Assert.True(GuardedExecutionEngine.Verify(op, sim.After, raw) is not null, "still RAW = verification failure");
+        Assert.True(Err(LayoutSimulator.Simulate(raw, new[] { new RepairBootSectorOp(1, p.OffsetBytes, "ReFS") }), "BootFix.Error.FileSystem"));
+        // never on the running Windows' volume
+        var d0 = Fixtures.Disk(inv, 0);
+        var c = Fixtures.Letter(inv, 'C');
+        var d0raw = d0 with { Partitions = d0.Partitions.Select(x => x == c ? x with { Volume = x.Volume! with { AccessError = "x" } } : x).ToList() };
+        Assert.True(Err(LayoutSimulator.Simulate(d0raw, new[] { new RepairBootSectorOp(0, c.OffsetBytes, "NTFS") }), "Op.Error.Protected"));
+    }
+}
+
+public static class WindowFitTests
+{
+    [Test]
+    public static void Main_window_always_fits_the_screen_with_its_title_bar_visible()
+    {
+        foreach (var (w, h) in new[] { (1366.0, 728.0), (1280.0, 680.0), (1093.0, 582.0), (1920.0, 1040.0), (2560.0, 1400.0), (800.0, 560.0) })
+        {
+            var f = Lasteast.Presentation.Services.WindowFit.Compute(0, 0, w, h);
+            Assert.True(f.Left >= 0 && f.Top >= 0, $"{w}x{h}: origin {f.Left},{f.Top}");
+            Assert.True(f.Left + f.Width <= w && f.Top + f.Height <= h, $"{w}x{h}: {f.Width}x{f.Height} at {f.Left},{f.Top}");
+            Assert.True(f.MinWidth <= w && f.MinHeight <= h, $"{w}x{h}: minimum {f.MinWidth}x{f.MinHeight}");
+        }
+        Assert.True(Lasteast.Presentation.Services.WindowFit.Compute(0, 0, 1366, 728).Maximize, "small laptop screen opens maximized");
+        var big = Lasteast.Presentation.Services.WindowFit.Compute(0, 0, 2560, 1400);
+        Assert.True(!big.Maximize && big.Width == 1440 && big.Height == 900 && big.Left == 560, "large screen: preferred size, centred");
+        var second = Lasteast.Presentation.Services.WindowFit.Compute(-1920, 0, 1920, 1040);
+        Assert.True(second.Left >= -1920 && second.Left + second.Width <= 0, "work area not at the origin");
+    }
+}

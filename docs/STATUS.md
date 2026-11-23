@@ -77,6 +77,7 @@ Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not 
 | exFAT deleted-file recovery (entry sets with InUse cleared, NoFatChain and FAT-chain files, allocation-bitmap reuse check) | ✅ post-1.0 | Unit-tested on a hand-built image (fsck-clean) and on files deleted by Windows' exFAT driver (CI) |
 | File carving: JPEG, PNG, GIF, PDF, ZIP/DOCX/XLSX/PPTX/EPUB/ODT, MP4/MOV/3GP/M4A/HEIC | ✅ post-1.0 | Structural length parsing (JPEG segments, PNG CRC, GIF blocks, ZIP EOCD, MP4 boxes, PDF trailer); contiguous files only; original names cannot be recovered. Used automatically when the file system is unreadable |
 | Recovery from a disk image file | ✅ post-1.0 | Raw (.img/.dd/.raw/.bin) and fixed VHD read directly, partitions inside listed; VHDX / dynamic VHD attached read-only by Windows. Image never modified (tested) |
+| Boot-sector repair from the file system's backup (NTFS, FAT32, exFAT) for partitions Windows reads as RAW | ✅ post-1.0 | Backup validated against the partition size and (NTFS) the MFT it points to; replaced sectors saved; tested on images and on VHDX volumes made RAW (CI) |
 | Fragmented carving (JPEG restart-marker reassembly, MP4 chunk tables) | ⏳ | Fragmented files are cut short or skipped rather than reported as complete |
 
 ## Phase 6 — OS migration

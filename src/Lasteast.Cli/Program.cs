@@ -54,6 +54,7 @@ internal static class Cli
                 "scan-lost" => await ScanLost(args),
                 "undelete" => await Undelete(args),
                 "undelete-image" => UndeleteImage(args),
+                "bootsector" => await BootSector(args),
                 "backup" => Backup(args),
                 "bcd" => Bcd(),
                 "account-help" => AccountHelp(),
@@ -76,6 +77,7 @@ internal static class Cli
         Console.WriteLine("Lasteast Partition — command line");
         Console.WriteLine("  inventory [--json] [--show-serials]                 list disks and partitions (read-only)");
         Console.WriteLine("  scan-lost <disk> [--deep]                           find lost partitions (read-only)");
+        Console.WriteLine("  bootsector <disk> <offset>  check whether a partition's damaged boot sector can be restored from its backup (read-only);\n      repair with: op <disk> repair-boot-sector offset=<offset> fs=<ntfs|fat32|exfat>");
         Console.WriteLine("  undelete-image <file> [--region N] --to <folder> [--all] [--by-content]  same, from a raw image or fixed VHD (read-only);\n      without --region the regions in the image are listed");
         Console.WriteLine("  undelete <disk> <offset> <size> --to <folder> [--all] [--by-content]  copy deleted (or all) files of a volume to another disk;\n      --by-content finds photos/videos/PDF/Office files by their content (also used when the file system is unreadable)");
         Console.WriteLine("  backup <folder>... --to <folder> [--no-verify]      copy folders and verify");
@@ -189,6 +191,24 @@ internal static class Cli
         var to = Opt(args, "--to") ?? throw new ArgumentException("--to <folder> is required");
         var inv = await Inv();
         return RecoverFiles(inv, disk, off, size, to, args.Contains("--all"), interactive: false, byContent: args.Contains("--by-content"));
+    }
+
+    private static async Task<int> BootSector(string[] args)
+    {
+        var disk = await DiskArg(args, 1);
+        if (args.Length < 3) throw new ArgumentException("offset (bytes) expected");
+        var off = Lasteast.Core.Operations.OperationParser.ParseSize(args[2]);
+        var part = disk.Partitions.FirstOrDefault(p => p.OffsetBytes == off) ?? throw new ArgumentException($"no partition at {off} on disk {disk.Number}");
+        using var dev = new PhysicalDiskDevice(disk, writable: false);
+        var d = BootSectorRepair.Diagnose(new OffsetDevice(dev, (long)part.OffsetBytes, (long)part.SizeBytes));
+        Console.WriteLine(d.State switch
+        {
+            BootSectorState.PrimaryValid => "  The boot sector is intact: the damage is elsewhere. Copy files off with undelete --by-content.",
+            BootSectorState.Repairable => $"  Damaged {d.FileSystem} boot sector with a valid backup ({d.Evidence}); repair writes {d.BytesToWrite} bytes:\n" +
+                                          $"    lasteast op {disk.Number} repair-boot-sector offset={off} fs={d.FileSystem!.ToLowerInvariant()}",
+            _ => "  No usable backup boot sector (NTFS, FAT32, exFAT) was found.",
+        });
+        return d.State == BootSectorState.Repairable ? 0 : 1;
     }
 
     private static int UndeleteImage(string[] args)

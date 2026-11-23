@@ -10,7 +10,7 @@ namespace Lasteast.Core.Operations;
 /// </summary>
 public static class OperationParser
 {
-    public static readonly IReadOnlyList<string> Kinds = new[] { "create", "delete", "format", "resize", "label", "letter", "move", "convert", "initialize" };
+    public static readonly IReadOnlyList<string> Kinds = new[] { "create", "delete", "format", "resize", "label", "letter", "move", "convert", "initialize", "repair-boot-sector" };
 
     public static ulong ParseSize(string s)
     {
@@ -43,6 +43,13 @@ public static class OperationParser
             "move" => new MovePartitionOp(disk, ParseSize(Req("offset")), ParseSize(Req("to"))),
             "convert" => new ConvertStyleOp(disk, Style(Req("style"))),
             "initialize" => new InitializeDiskOp(disk, Style(Opt("style") ?? "gpt")),
+            "repair-boot-sector" => new RepairBootSectorOp(disk, ParseSize(Req("offset")), Req("fs") switch
+            {
+                var f when f.Equals("ntfs", StringComparison.OrdinalIgnoreCase) => "NTFS",
+                var f when f.Equals("fat32", StringComparison.OrdinalIgnoreCase) => "FAT32",
+                var f when f.Equals("exfat", StringComparison.OrdinalIgnoreCase) => "exFAT",
+                var f => f,
+            }),
             _ => throw new FormatException($"unknown operation '{kind}' (use: {string.Join(", ", Kinds)})"),
         };
     }

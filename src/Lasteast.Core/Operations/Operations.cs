@@ -2,7 +2,7 @@ using Lasteast.Core.Models;
 
 namespace Lasteast.Core.Operations;
 
-public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition, RestoreTable, RepairBoot, Initialize, SetActive, SetHidden, SetType }
+public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition, RestoreTable, RepairBoot, Initialize, SetActive, SetHidden, SetType, RepairBootSector }
 
 /// <summary>
 /// A planned change to one disk. Operations are pure data: they describe intent and are only
@@ -111,6 +111,17 @@ public sealed record RecoverPartitionOp(int DiskNumber, ulong OffsetBytes, ulong
 {
     public override OperationKind Kind => OperationKind.RecoverPartition;
     public override int EstimatedSeconds => 3;
+}
+
+/// <summary>
+/// Copies a file system's own backup boot sector (NTFS: last sector; FAT32: sectors 6–8; exFAT: backup boot region)
+/// over a damaged one at the start of an existing partition, so Windows can read the volume again. Only the boot
+/// region changes; the replaced sectors are saved first.
+/// </summary>
+public sealed record RepairBootSectorOp(int DiskNumber, ulong OffsetBytes, string FileSystem) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.RepairBootSector;
+    public override int EstimatedSeconds => 5;
 }
 
 /// <summary>Writes back the partition-table structures from a Lasteast backup (MBR/EBR sectors, GPT headers and entries).</summary>

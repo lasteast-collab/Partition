@@ -22,6 +22,30 @@
                     <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}" />
                 </StackPanel>
             </Border>
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="{Binding HasUnreadable, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock Text="{ui:Tr BootFix.Section}" Style="{StaticResource Text.Section}" />
+                    <TextBlock Text="{ui:Tr BootFix.SectionHint}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <ItemsControl ItemsSource="{Binding Unreadable}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:UnreadablePartitionViewModel}">
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Result}" TextWrapping="Wrap" Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                        <Button Style="{StaticResource Button.Outline}" Command="{Binding CheckCommand}" Content="{ui:Tr BootFix.Check}" Padding="10,4" Margin="0,0,6,0" />
+                                        <Button Style="{StaticResource Button.Accent}" Command="{Binding RepairCommand}" Content="{ui:Tr BootFix.Repair}" Padding="10,4"
+                                                Visibility="{Binding CanRepair, Converter={StaticResource BoolToVis}}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
             <ItemsControl ItemsSource="{Binding Found}" Focusable="False">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="{x:Type vm:FoundPartitionViewModel}">

@@ -165,6 +165,22 @@ public static partial class LayoutSimulator
         return d;
     }
 
+    private static DiskInfo ApplyRepairBootSector(DiskInfo d, PartitionInfo target, RepairBootSectorOp b, bool protectedPartition, List<ValidationIssue> issues)
+    {
+        if (protectedPartition) return Fail(issues, "Op.Error.Protected", d);
+        if (d.IsDynamic) return Fail(issues, "Op.Error.Dynamic", d, d.Number);
+        if (b.FileSystem is not ("NTFS" or "FAT32" or "exFAT")) return Fail(issues, "BootFix.Error.FileSystem", d, b.FileSystem);
+        // a volume Windows reads fine has a working boot sector: never overwrite it
+        if (target.Volume is { AccessError: null, FileSystem: not null }) return Fail(issues, "BootFix.Error.Readable", d);
+        Warn(issues, "BootFix.Warn.Sectors", b.FileSystem);
+        var repaired = target with
+        {
+            Volume = (target.Volume ?? new VolumeInfo { VolumeGuidPath = $"pending:{d.Number}:{target.OffsetBytes}" })
+                with { FileSystem = b.FileSystem, AccessError = null, AccessErrorCode = null },
+        };
+        return d with { Partitions = d.Partitions.Select(p => ReferenceEquals(p, target) ? repaired : p).ToList() };
+    }
+
     private static DiskInfo ApplyRecover(DiskInfo d, RecoverPartitionOp r, List<ValidationIssue> issues)
     {
         if (d.IsDynamic) return Fail(issues, "Op.Error.Dynamic", d, d.Number);

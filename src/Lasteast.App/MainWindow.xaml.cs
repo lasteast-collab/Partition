@@ -14,6 +14,16 @@ public partial class MainWindow : Window
     public MainWindow(MainViewModel vm, ThemeService theme)
     {
         InitializeComponent();
+        // size and position from the actual screen (a fixed 1440×900 opened off-screen on 1366×768 laptops)
+        var area = SystemParameters.WorkArea;
+        var fit = Lasteast.Presentation.Services.WindowFit.Compute(area.Left, area.Top, area.Width, area.Height);
+        MinWidth = fit.MinWidth;
+        MinHeight = fit.MinHeight;
+        Width = fit.Width;
+        Height = fit.Height;
+        Left = fit.Left;
+        Top = fit.Top;
+        if (fit.Maximize) WindowState = WindowState.Maximized;
         _vm = vm;
         _theme = theme;
         DataContext = vm;

@@ -197,7 +197,7 @@ public sealed class GuardedExecutionEngine
 
             // Re-read and verify before doing anything else. After raw table writes Windows publishes the new layout
             // asynchronously, so those are re-read a few times before a mismatch counts.
-            bool raw = op is ConvertStyleOp or MovePartitionOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp;
+            bool raw = op is ConvertStyleOp or MovePartitionOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp or RepairBootSectorOp;
             DiskInfo? after = null;
             string? mismatch = null;
             for (int attempt = 0; ; attempt++)
@@ -301,6 +301,13 @@ public sealed class GuardedExecutionEngine
                 if (At(actual, sa.OffsetBytes)?.MbrActive != true) return "partition is not active";
                 if (actual.Partitions.Count(p => p.MbrActive) != 1) return "more than one active partition";
                 break;
+            case RepairBootSectorOp rb:
+            {
+                var v = At(actual, rb.OffsetBytes)?.Volume;
+                if (v is null || v.AccessError is not null) return $"volume still unreadable: {v?.AccessError}";
+                if (!string.Equals(v.FileSystem, rb.FileSystem, StringComparison.OrdinalIgnoreCase)) return $"file system {v.FileSystem} != {rb.FileSystem}";
+                break;
+            }
             case SetHiddenOp sh:
                 if (At(actual, sh.OffsetBytes)?.IsHidden != sh.Hidden) return $"hidden != {sh.Hidden}";
                 break;
@@ -354,6 +361,7 @@ public sealed class GuardedExecutionEngine
             MovePartitionOp m => m.NewOffsetBytes,
             RecoverPartitionOp rp => rp.OffsetBytes,
             SetHiddenOp sh => sh.OffsetBytes,
+            RepairBootSectorOp rb => rb.OffsetBytes,
             SetTypeOp st => st.OffsetBytes,
             _ => ulong.MaxValue,
         };

@@ -330,3 +330,67 @@ public static class DiskImageTests
         finally { if (Directory.Exists(dest)) Directory.Delete(dest, true); }
     }
 }
+
+public static class BootSectorRepairTests
+{
+    private static void Roundtrip(string fixture, int sizeMb, int damagedSectors, string fs, long extraBytes = 0)
+    {
+        using var img = new DiskImage(sizeMb + (extraBytes > 0 ? 1 : 0));
+        var original = DiskImage.Fixture(fixture);
+        img.Put(0, original);
+        img.Put(0, new byte[damagedSectors * 512]); // the damage: start of the volume zeroed
+        using var dev = img.Open();
+        var vol = new OffsetDevice(dev, 0, original.Length + extraBytes);
+        Assert.True(RecoveryReaders.Open(vol) is null, "damaged volume is unreadable");
+        var d = BootSectorRepair.Diagnose(vol);
+        Assert.Equal(BootSectorState.Repairable, d.State);
+        Assert.Equal(fs, d.FileSystem);
+        var undo = BootSectorRepair.Current(dev, 0, d);
+        Assert.True(undo.All(b => b == 0), "undo data holds the damaged sectors");
+        BootSectorRepair.Apply(dev, 0, d);
+        var repaired = img.Get(0, damagedSectors * 512);
+        // NTFS's backup is a copy of sector 0 only; FAT32 and exFAT restore their whole boot region
+        int compare = fs == "NTFS" ? 512 : damagedSectors * 512;
+        if (fs == "FAT32")
+        {
+            // FSInfo (sector 1) comes from the backup with its free-space hints marked unknown
+            Assert.True(repaired.AsSpan(0, 512).SequenceEqual(original.AsSpan(0, 512)) && repaired.AsSpan(1024, 512).SequenceEqual(original.AsSpan(1024, 512)), "boot sectors restored");
+            Assert.True(repaired.AsSpan(512, 4).SequenceEqual("RRaA"u8) && BitConverter.ToUInt32(repaired, 512 + 488) == uint.MaxValue, "FSInfo restored, hints unknown");
+        }
+        else
+            Assert.True(repaired.AsSpan(0, compare).SequenceEqual(original.AsSpan(0, compare)), "boot region restored byte-exact");
+        Assert.True(RecoveryReaders.Open(vol) is not null, "readable again");
+        Assert.Equal(BootSectorState.PrimaryValid, BootSectorRepair.Diagnose(vol).State);
+    }
+
+    [Test] public static void Ntfs_boot_sector_is_restored_from_the_backup_in_the_last_sector() => Roundtrip("ntfs24.img.gz", 24, 1, "NTFS");
+    [Test] public static void Ntfs_backup_is_found_when_the_partition_is_larger_than_the_volume() => Roundtrip("ntfs24.img.gz", 24, 1, "NTFS", extraBytes: 512 * 1024);
+    [Test] public static void Fat32_boot_sectors_are_restored_from_sector_6() => Roundtrip("fat32-40.img.gz", 40, 3, "FAT32");
+    [Test] public static void Exfat_boot_region_is_restored_from_its_backup_region() => Roundtrip("exfat16.img.gz", 16, 12, "exFAT");
+
+    [Test]
+    public static void A_backup_whose_mft_is_gone_is_not_used()
+    {
+        using var img = new DiskImage(24);
+        var original = DiskImage.Fixture("ntfs24.img.gz");
+        img.Put(0, original);
+        int spc = original[0x0D];
+        long mft = BitConverter.ToInt64(original, 0x30), mirr = BitConverter.ToInt64(original, 0x38);
+        img.Put(0, new byte[512]);
+        img.Put(mft * spc * 512, new byte[4096]);
+        img.Put(mirr * spc * 512, new byte[4096]);
+        using var dev = img.Open();
+        Assert.Equal(BootSectorState.NoBackup, BootSectorRepair.Diagnose(dev).State);
+    }
+
+    [Test]
+    public static void A_healthy_volume_needs_no_repair()
+    {
+        using var img = new DiskImage(24);
+        img.Put(0, DiskImage.Fixture("ntfs24.img.gz"));
+        using var dev = img.Open();
+        var d = BootSectorRepair.Diagnose(dev);
+        Assert.Equal(BootSectorState.PrimaryValid, d.State);
+        Assert.Throws<RawOperationException>(() => BootSectorRepair.Apply(dev, 0, d));
+    }
+}
