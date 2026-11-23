@@ -2,7 +2,7 @@ using Lasteast.Core.Models;
 
 namespace Lasteast.Core.Operations;
 
-public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone }
+public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot }
 
 /// <summary>
 /// A planned change to one disk. Operations are pure data: they describe intent and are only
@@ -88,6 +88,18 @@ public sealed record CloneDiskOp(int DiskNumber, int SourceDiskNumber, Lasteast.
     public override OperationKind Kind => OperationKind.Clone;
     public override bool DestroysData => true;
     public override int EstimatedSeconds => (int)Math.Max(30, EstimatedBytes * (Verify ? 2UL : 1UL) / (200UL * 1024 * 1024));
+}
+
+/// <summary>
+/// Makes a disk holding a copy of Windows bootable on its own: rebuilds the boot files with Microsoft's bcdboot
+/// from the copy's Windows folder onto the disk's system partition, and points the copy's C: drive letter at its own
+/// partition (offline registry, MountedDevices). Never touches the running Windows.
+/// </summary>
+/// <param name="WindowsDirectoryOverride">Technician/test use: take boot files from this Windows folder instead of the disk's own copy (no registry change then).</param>
+public sealed record PrepareBootOp(int DiskNumber, bool FixDriveLetter = true, string? WindowsDirectoryOverride = null) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.PrepareBoot;
+    public override int EstimatedSeconds => 20;
 }
 
 public enum IssueLevel { Error, Warning }

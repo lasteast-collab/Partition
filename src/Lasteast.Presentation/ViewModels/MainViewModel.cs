@@ -95,6 +95,7 @@ public sealed class MainViewModel : ObservableObject
         CleanupPage.Attach(settings, () => { try { store.Save(settings); } catch (IOException) { } catch (UnauthorizedAccessException) { } });
         ClonePage = new ClonePageViewModel(Queue, () => SelectedNav = PendingNav);
         ConversionPage = new ConversionPageViewModel(Queue, () => SelectedNav = PendingNav);
+        MigrationPage = new OsMigrationPageViewModel(Queue, () => SelectedNav = PendingNav);
         var smartFixNav = new NavItem("Nav.SmartFix", "\uE945", SmartFixPage);
         NavGroups = new[]
         {
@@ -106,7 +107,7 @@ public sealed class MainViewModel : ObservableObject
                 new NavItem("Nav.DiskConversion", "\uE8AB", ConversionPage)),
             new NavGroup("NavGroup.Migrate",
                 new NavItem("Nav.DiskClone", "\uE8C8", ClonePage),
-                Planned("Nav.OsMigration", "\uE895", 6)),
+                new NavItem("Nav.OsMigration", "\uE895", MigrationPage)),
             new NavGroup("NavGroup.Recover",
                 Planned("Nav.PartitionRecovery", "\uE81C", 7),
                 Planned("Nav.BootRecovery", "\uE7E8", 8)),
@@ -176,6 +177,7 @@ public sealed class MainViewModel : ObservableObject
     public CleanupPageViewModel CleanupPage { get; }
     public ClonePageViewModel ClonePage { get; }
     public ConversionPageViewModel ConversionPage { get; }
+    public OsMigrationPageViewModel MigrationPage { get; }
     public OperationQueue Queue { get; }
     public PendingPageViewModel PendingPage { get; }
     public NavItem PendingNav { get; } = null!;
@@ -258,6 +260,7 @@ public sealed class MainViewModel : ObservableObject
         CleanupPage.Refresh(state);
         ClonePage.Refresh(state);
         ConversionPage.Refresh(state);
+        MigrationPage.Refresh(state);
         SettingsPage.Refresh(state);
         foreach (var g in NavGroups)
         foreach (var i in g.Items)

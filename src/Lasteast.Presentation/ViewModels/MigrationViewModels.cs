@@ -210,3 +210,109 @@ public sealed class ConversionPageViewModel : PageViewModel
         }
     }
 }
+
+/// <summary>OS migration wizard: copy Windows to another disk (spec module "Migrate OS").</summary>
+public sealed class OsMigrationPageViewModel : PageViewModel
+{
+    private readonly OperationQueue _queue;
+    private readonly Action _openPending;
+    private StorageInventory? _inv;
+    private DiskChoice? _dest;
+    private bool _replace = true;
+    private Lasteast.Core.Migration.MigrationPlan? _plan;
+    private string? _queuedText;
+
+    public OsMigrationPageViewModel(OperationQueue queue, Action openPending)
+    {
+        _queue = queue;
+        _openPending = openPending;
+        QueuePreparationCommand = new RelayCommand(() => QueueOps(_plan?.Preparation), () => _plan?.Preparation.Count > 0);
+        QueueMigrationCommand = new RelayCommand(() => QueueOps(_plan?.Migration), () => _plan?.Migration.Count > 0);
+    }
+
+    public override string TitleKey => "Nav.OsMigration";
+    public ObservableCollection<DiskChoice> Disks { get; } = new();
+    public ObservableCollection<string> SystemPartitions { get; } = new();
+    public ObservableCollection<IssueViewModel> Issues { get; } = new();
+    public RelayCommand QueuePreparationCommand { get; }
+    public RelayCommand QueueMigrationCommand { get; }
+
+    public DiskChoice? Destination { get => _dest; set { if (Set(ref _dest, value)) Replan(); } }
+    public bool ReplaceOldDisk { get => _replace; set { if (Set(ref _replace, value)) { OnPropertyChanged(nameof(KeepBoth)); Replan(); } } }
+    public bool KeepBoth { get => !_replace; set => ReplaceOldDisk = !value; }
+    public string? QueuedText { get => _queuedText; private set { Set(ref _queuedText, value); OnPropertyChanged(nameof(HasQueued)); } }
+    public bool HasQueued => _queuedText is not null;
+
+    public string SourceText => _inv?.Disks.FirstOrDefault(d => d.IsWindowsDisk) is { } w
+        ? $"{L("Common.Disk")} {w.Number} — {w.Model} · {Size(w.SizeBytes)}" : L("Mig.NoWindows");
+
+    public string FitText => _plan?.Fit switch
+    {
+        null => L("Mig.PickDestination"),
+        Lasteast.Core.Migration.MigrationFit.Fits => Loc.Instance.Format("Mig.Fit.Fits", Size(_plan.DataBytes), Size(_plan.RequiredBytes)),
+        Lasteast.Core.Migration.MigrationFit.NeedsPreparation => Loc.Instance.Format("Mig.Fit.Prepare", Size(_plan.RequiredBytes), Size(_plan.ShrinkCTo ?? 0)),
+        Lasteast.Core.Migration.MigrationFit.TooSmall => Loc.Instance.Format("Mig.Fit.TooSmall", Size(_plan.DataBytes)),
+        Lasteast.Core.Migration.MigrationFit.NoWindowsDisk => L("Mig.NoWindows"),
+        _ => L("Mig.Fit.Invalid"),
+    };
+
+    public bool NeedsPreparation => _plan?.Fit == Lasteast.Core.Migration.MigrationFit.NeedsPreparation;
+    public bool CanMigrate => _plan?.Fit == Lasteast.Core.Migration.MigrationFit.Fits;
+    public string NextStepsText => L(_replace ? "Mig.Next.Replace" : "Mig.Next.KeepBoth");
+
+    private void QueueOps(IReadOnlyList<DiskOperation>? ops)
+    {
+        if (ops is null || ops.Count == 0) return;
+        var added = new List<DiskOperation>();
+        foreach (var op in ops)
+        {
+            var r = _queue.TryAdd(op);
+            if (r.Any(i => i.IsError))
+            {
+                foreach (var a in added) _queue.RemoveRange(new[] { a });
+                Issues.Clear();
+                foreach (var i in r) Issues.Add(new IssueViewModel(OperationText.Issue(i), i.IsError));
+                return;
+            }
+            added.Add(op);
+        }
+        QueuedText = L("Editor.Added");
+        _openPending();
+    }
+
+    private void Replan()
+    {
+        QueuedText = null;
+        Issues.Clear();
+        SystemPartitions.Clear();
+        _plan = _inv is null || _dest is null ? null
+            : Lasteast.Core.Migration.OsMigrationPlanner.Plan(_inv, _dest.Number,
+                _replace ? Lasteast.Core.Migration.MigrationTarget.ReplaceOldDisk : Lasteast.Core.Migration.MigrationTarget.KeepBoth);
+        if (_plan is not null)
+        {
+            foreach (var p in _plan.SystemPartitions)
+                SystemPartitions.Add($"{PartitionTitle(p)} · {Size(p.SizeBytes)}" + (p.Volume?.DriveLetter is { } l ? $" ({l}:)" : ""));
+            foreach (var i in _plan.Issues) Issues.Add(new IssueViewModel(OperationText.Issue(i), i.IsError));
+        }
+        OnPropertyChanged(nameof(FitText));
+        OnPropertyChanged(nameof(NeedsPreparation));
+        OnPropertyChanged(nameof(CanMigrate));
+        OnPropertyChanged(nameof(NextStepsText));
+        QueuePreparationCommand.RaiseCanExecuteChanged();
+        QueueMigrationCommand.RaiseCanExecuteChanged();
+    }
+
+    public override void Refresh(AppState state)
+    {
+        base.Refresh(state);
+        _inv = state.Inventory;
+        var keep = _dest?.Number;
+        Disks.Clear();
+        foreach (var d in _inv?.Disks.Where(d => !d.IsWindowsDisk) ?? Enumerable.Empty<DiskInfo>())
+            Disks.Add(new DiskChoice(d.Number, $"{L("Common.Disk")} {d.Number} — {d.Model} · {Size(d.SizeBytes)}" + (d.IsVirtual ? $" · {L("Badge.Virtual")}" : "")));
+        _dest = Disks.FirstOrDefault(x => x.Number == keep);
+        OnPropertyChanged(nameof(Destination));
+        OnPropertyChanged(nameof(SourceText));
+        Replan();
+    }
+}

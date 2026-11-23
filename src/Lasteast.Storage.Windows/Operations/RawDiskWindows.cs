@@ -400,10 +400,12 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
     private readonly StorageManagementExecutor _wmi = new();
     private readonly RawDiskExecutor _raw;
     private readonly IStorageInventoryProvider _inventory;
+    private readonly BootPreparer _boot;
 
     public WindowsOperationExecutor(IStorageInventoryProvider inventory, IAppLog? log = null, string? journalDir = null)
     {
         _inventory = inventory;
+        _boot = new BootPreparer(log);
         _raw = new RawDiskExecutor(inventory, log, journalDir);
     }
 
@@ -432,6 +434,9 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
                 await Raw(() => _raw.Clone(src, liveDisk, k.Mode, k.NewIdentifiers, k.Verify, k.OnlyPartitions, RawProgress, CancellationToken.None));
                 break;
             }
+            case Lasteast.Core.Operations.PrepareBootOp b:
+                await Task.Run(() => _boot.Prepare(liveDisk, b));
+                break;
             default:
                 await _wmi.ExecuteAsync(operation, liveDisk, cancellationToken);
                 break;

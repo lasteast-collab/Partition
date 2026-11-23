@@ -76,6 +76,7 @@ public static partial class LayoutSimulator
 
         if (op is CreatePartitionOp create) return ApplyCreate(d, create, lettersElsewhere, issues);
         if (op is ConvertStyleOp convert) return ApplyConvert(d, convert, issues);
+        if (op is PrepareBootOp boot) return ApplyPrepareBoot(d, boot, issues);
 
         var offset = op switch
         {

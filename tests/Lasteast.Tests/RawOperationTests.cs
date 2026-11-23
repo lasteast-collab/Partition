@@ -212,3 +212,36 @@ public static class RecoveryMoveTests
         Assert.True(sim.AllIssues.Any(i => i.Key == "Move.Warn.Recovery"));
     }
 }
+
+public static class SubsetCloneTests
+{
+    private const ulong MiB = 1024 * 1024;
+
+    [Test]
+    public static void Subset_clone_writes_table_entries_only_for_copied_partitions()
+    {
+        foreach (var gpt in new[] { true, false })
+        {
+            using var src = gpt ? DiskImage.GptWithVolumes(96) : DiskImage.MbrWithVolumes(96);
+            using var dst = new DiskImage(48);
+            DiskInfo s;
+            using (var dev = src.Open()) s = DiskImage.Describe(dev, 7);
+            var only = new[] { MiB };
+            var op = new CloneDiskOp(8, 7, CloneMode.SectorBySector, NewIdentifiers: false, Verify: true, only);
+            DiskInfo d;
+            using (var dev = dst.Open()) d = DiskImage.Describe(dev, 8);
+            var sim = LayoutSimulator.Simulate(d, new[] { op }, null, n => n == 7 ? s : null);
+            Assert.True(sim.IsValid, string.Join(",", sim.AllIssues.Select(i => i.Key)));
+            using (var sd = src.Open())
+            using (var dd = dst.Open())
+                Cloner.Run(sd, dd, ClonePlanner.Plan(s, dd.Length, 512, op.Mode, false, null, only), true, null, CancellationToken.None);
+            DiskInfo after;
+            using (var dev = dst.Open()) after = DiskImage.Describe(dev, 8);
+            Assert.Equal(1, after.Partitions.Count);
+            Assert.Equal(MiB, after.Partitions[0].OffsetBytes);
+            Assert.Equal(null, GuardedExecutionEngine.Verify(op, sim.After, after));
+            // NTFS content arrived
+            Assert.True(dst.Get((long)MiB + 3, 4).AsSpan().SequenceEqual("NTFS"u8));
+        }
+    }
+}

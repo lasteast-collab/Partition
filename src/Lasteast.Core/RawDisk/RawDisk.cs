@@ -170,7 +170,9 @@ public sealed record ClonePlan(
     long BytesToCopy,
     bool RewriteGpt,
     bool NewIdentifiers,
-    PartitionStyle Style);
+    PartitionStyle Style,
+    /// <summary>Start offsets of the partitions being copied; null = all. Table entries for the others are dropped.</summary>
+    IReadOnlyCollection<ulong>? Partitions = null);
 
 public static class ClonePlanner
 {
@@ -221,7 +223,8 @@ public static class ClonePlanner
             }
         }
         var merged = Merge(regions, ss);
-        return new ClonePlan(merged, merged.Sum(r => r.Length), source.Style == PartitionStyle.Gpt, newIdentifiers, source.Style);
+        return new ClonePlan(merged, merged.Sum(r => r.Length), source.Style == PartitionStyle.Gpt, newIdentifiers, source.Style,
+            onlyPartitions is null ? null : parts.Select(p => p.OffsetBytes).ToHashSet());
     }
 
     /// <summary>Sorts, sector-aligns and merges overlapping/adjacent ranges.</summary>
@@ -293,7 +296,7 @@ public static class Cloner
                 var span = buf.AsSpan(0, len);
                 dest.Read(off, span);
                 // the partition-table area was rewritten on purpose: compare it against the new tables instead
-                if (off == 0 && plan.RewriteGpt) { checkedBytes += len; continue; }
+                if (off == 0 && (plan.RewriteGpt || plan.Partitions is not null)) { checkedBytes += len; continue; }
                 if (off == 0 && plan.NewIdentifiers && plan.Style == PartitionStyle.Mbr) span[440..444].Clear();
                 var actual = SHA256.HashData(span);
                 if (off == 0 && plan.NewIdentifiers && plan.Style == PartitionStyle.Mbr)
@@ -323,17 +326,25 @@ public static class Cloner
             var gpt = PartitionTableCodec.ReadGpt(head, ss);
             var total = (ulong)(dest.Length / ss);
             var (first, last) = PartitionTableCodec.DefaultUsable(total, ss);
-            var entries = plan.NewIdentifiers ? gpt.Entries.Select(e => e with { Id = Guid.NewGuid() }).ToList() : gpt.Entries.ToList();
+            var kept = gpt.Entries.Where(e => plan.Partitions is null || plan.Partitions.Contains(e.FirstLba * (ulong)ss));
+            var entries = plan.NewIdentifiers ? kept.Select(e => e with { Id = Guid.NewGuid() }).ToList() : kept.ToList();
             var g = gpt with { DiskGuid = plan.NewIdentifiers ? Guid.NewGuid() : gpt.DiskGuid, FirstUsableLba = first, LastUsableLba = last, Entries = entries };
             var (newHead, tail, tailLba) = PartitionTableCodec.BuildGpt(g, total, ss, head.AsSpan(0, ss));
             dest.Write(0, newHead);
             dest.Write((long)tailLba * ss, tail);
         }
-        else if (plan.NewIdentifiers)
+        else if (plan.NewIdentifiers || plan.Partitions is not null)
         {
             var s0 = new byte[ss];
             dest.Read(0, s0);
-            BinaryPrimitives.WriteUInt32LittleEndian(s0.AsSpan(440), (uint)RandomNumberGenerator.GetInt32(1, int.MaxValue));
+            if (plan.Partitions is not null)
+            {
+                var mbr = PartitionTableCodec.ReadMbr(s0);
+                var entries = mbr.Entries.Select(e => !e.IsEmpty && plan.Partitions.Contains((ulong)e.FirstLba * (ulong)ss) ? e : new MbrEntry(false, 0, 0, 0)).ToList();
+                PartitionTableCodec.WriteMbr(s0, mbr with { Entries = entries });
+            }
+            if (plan.NewIdentifiers)
+                BinaryPrimitives.WriteUInt32LittleEndian(s0.AsSpan(440), (uint)RandomNumberGenerator.GetInt32(1, int.MaxValue));
             dest.Write(0, s0);
         }
         dest.Flush();

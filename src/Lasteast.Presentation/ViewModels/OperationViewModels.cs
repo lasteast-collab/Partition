@@ -34,6 +34,7 @@ public static class OperationText
             MovePartitionOp m => Loc.Instance.Format("OpText.Move", Target(m.OffsetBytes), Size(m.NewOffsetBytes), disk),
             CloneDiskOp k => Loc.Instance.Format("OpText.Clone", $"{L("Common.Disk")} {k.SourceDiskNumber}", disk,
                 L(k.Mode == Lasteast.Core.RawDisk.CloneMode.UsedSpace ? "Clone.Mode.UsedSpace" : "Clone.Mode.SectorBySector")),
+            PrepareBootOp b => Loc.Instance.Format("OpText.PrepareBoot", disk),
             SetDriveLetterOp s => s.Letter is { } nl
                 ? Loc.Instance.Format("OpText.Letter", Target(s.OffsetBytes), $"{nl}:", disk)
                 : Loc.Instance.Format("OpText.RemoveLetter", Target(s.OffsetBytes), disk),

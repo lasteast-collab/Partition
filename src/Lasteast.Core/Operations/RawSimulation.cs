@@ -140,4 +140,28 @@ public static partial class LayoutSimulator
             UsableEndBytes = usableEnd,
         };
     }
+
+    private static DiskInfo ApplyPrepareBoot(DiskInfo d, PrepareBootOp b, List<ValidationIssue> issues)
+    {
+        // The running Windows' boot configuration is repaired with the rescue tools (Phase 8), not from here.
+        if (d.IsWindowsDisk || d.IsBootDisk) return Fail(issues, "Boot.Error.RunningSystem", d);
+        var parts = Real(d).ToList();
+        if (d.Style == PartitionStyle.Gpt)
+        {
+            var esp = parts.FirstOrDefault(p => p.Role == PartitionRole.EfiSystem);
+            if (esp is null) return Fail(issues, "Boot.Error.NoEsp", d);
+            if (esp.Volume?.FileSystem is { } fs && !fs.StartsWith("FAT", StringComparison.OrdinalIgnoreCase)) return Fail(issues, "Boot.Error.EspFileSystem", d, fs);
+        }
+        else if (d.Style == PartitionStyle.Mbr)
+        {
+            if (!parts.Any(p => p.MbrActive)) Warn(issues, "Boot.Warn.SetActive");
+        }
+        else return Fail(issues, "Op.Error.DiskStyle", d, d.Number);
+
+        if (b.WindowsDirectoryOverride is null && !parts.Any(p => string.Equals(p.Volume?.FileSystem, "NTFS", StringComparison.OrdinalIgnoreCase)))
+            return Fail(issues, "Boot.Error.NoWindows", d);
+        Warn(issues, "Boot.Warn.Bcd");
+        if (b.FixDriveLetter && b.WindowsDirectoryOverride is null) Warn(issues, "Boot.Warn.Registry");
+        return d;
+    }
 }
