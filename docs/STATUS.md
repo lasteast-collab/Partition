@@ -2,13 +2,30 @@
 
 Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not be built (see note)
 
-> **Build verification.** Core, Storage.Windows, Presentation, CLI and tests were compiled and the 71 tests pass.
-> The WPF project (`Lasteast.App`) was written against .NET 8 WPF but could not be compiled in the
-> authoring environment (Linux, no Windows Desktop SDK). Its XAML is covered by the static checks
-> (resource keys, binding paths, localization keys, well-formedness), but expect the first Windows build
-> to possibly need small fixes. Report compiler errors and they will be fixed first.
+> **Build verification.** Every push is built and tested on GitHub Actions (`windows-latest`): the full solution
+> including the WPF app, 89 unit tests, and integration tests that run the real engine as administrator against
+> freshly created VHDX virtual disks (create/format/resize/label/letter, MBR↔GPT conversion, partition move,
+> disk clone) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
 
-## Phase 4 — Storage Analyzer & Cleanup  (this build)
+## Phase 5 — Conversion, move, clone  (this build)
+
+| Feature | Status | Notes |
+|---|---|---|
+| MBR → GPT without data loss | ✅ | Partitions keep their sectors; backup GPT written first, then header + protective MBR (crash order). Refuses extended/logical, partitions overlapping GPT areas, unknown types |
+| GPT → MBR without data loss | ✅ | ≤ 4 partitions, below 2 TB; MSR dropped (warned); GPT copies zeroed after the MBR is written |
+| Conversion of the running Windows disk | 🚫 | Needs a firmware switch as well; the app points to Microsoft's MBR2GPT instead of half-doing it |
+| Move a partition (left/right, overlapping or not) | ✅ | Chunk ≤ shift distance so every chunk copy is idempotent; write-through JSON journal → resumes after power loss; NTFS/FAT hidden-sectors patched (incl. backup boot sectors); volume locked + dismounted |
+| Move the Recovery partition | ✅ | `reagentc /disable` before, `/enable` after |
+| Move the running Windows volume / active boot partition | 🚫 | Impossible from inside Windows; needs the rescue environment (Phase 8) |
+| Move exFAT / ReFS partitions | ⏳ | Refused for now (their own position records are not patched) |
+| Disk clone: sector-by-sector or used-space (NTFS bitmap), whole disk or chosen partitions | ✅ | Same offsets; GPT rebuilt for the destination size; optional new disk/partition IDs |
+| Clone source consistency | 🟡 | Unused volumes are locked; volumes in use (C:) are read from a VSS snapshot — the VSS path compiles but CI only exercises the locked path |
+| Clone verification (SHA-256 re-read) | ✅ | |
+| Clone wizard with compatibility check (module 11) | ✅ | Uses the same simulator as the engine |
+| Disk Conversion page; Move / Convert actions in the editor | ✅ | |
+| Clone to a smaller disk by shrinking partitions; clone extended/logical MBR | ⏳ | Shrink the source first; refused with a clear message |
+
+## Phase 4 — Storage Analyzer & Cleanup
 
 | Feature | Status | Notes |
 |---|---|---|
@@ -36,7 +53,7 @@ Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not 
 | Checks: C: space, other volumes' space, partition-table consistency, alignment, unreadable volumes, unallocated space, MBR > 2 TB, TRIM, dynamic disks, EFI partition, recovery partition, temp files, Recycle Bin, hibernation file, elevation | ✅ | Read-only measurements (`WindowsSystemProbe`, time-boxed) |
 | "Fix now" → pending queue → preview → confirm → engine → verify | ✅ | Smart Fix never executes anything itself |
 | One-click C: expansion (module 9) into adjacent unallocated space | ✅ | Max size computed; validated by the simulator |
-| C: expansion when another partition is in the way (e.g. recovery) | 🟡 | Explained honestly with the free space available; moving the partition needs the Phase 5 move engine |
+| C: expansion when another partition is in the way (e.g. recovery) | 🟡 | Possible manually since P5 (move Recovery, then extend C:); not yet a one-click Smart Fix |
 | Disk health / SMART in the scan | ⏳ P9 | Listed as "not measured yet", never guessed |
 | BitLocker status, file-system dirty bit, WinRE status | ⏳ P8–P10 | Need elevation / APIs not yet integrated |
 | Cleanup actions for temp files and duplicates | ✅ P4 | Via Cleanup / Storage Analyzer pages |
@@ -53,12 +70,13 @@ Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not 
 | Typed confirmation (`APPLY`) + backup acknowledgement | ✅ | |
 | Guarded execution engine | ✅ | Elevation, fingerprint match, re-simulation, backup-before-write, verify after every step, stop on first problem, cancel between steps only |
 | Partition-table backup (head/tail 1 MiB, EBRs, layout, SHA-256 manifest, read-back verified) | ✅ | Warns when stored on the changed disk |
-| Windows executor: Storage Management API (MSFT_Disk/Partition/Volume) + Win32 mount points/labels | 🟡 | Compiles; **not yet run against a real disk** — test on the VHDX test bed first |
+| Windows executor: Storage Management API (MSFT_Disk/Partition/Volume) + Win32 mount points/labels | ✅ | Verified in CI against real VHDX disks |
 | Virtual-disks-only policy by default; opt-in for physical disks | ✅ | Settings › Safety |
 | Operation history (JSON lines, includes refused attempts) | ✅ | `%LOCALAPPDATA%\Lasteast\Partition\history.jsonl`; SQLite deferred (no NuGet in authoring env) |
 | VHDX test bed script | ✅ | `tools/vhdx-testbed.ps1` |
 | Window cannot be closed while operations run | ✅ | |
-| Move partition (start offset), merge, split, copy, hide, set active, type ID, cluster-size change | ⏳ P3 | Move needs a data-relocation engine with its own crash-safe journal |
+| Move partition | ✅ P5 | |
+| Merge, split, copy, hide, set active, type ID, cluster-size change | ⏳ | |
 | Drag-and-drop resizing on the map | ⏳ P3 | Editor uses typed sizes for now |
 | Restore partition table from backup | ⏳ P3 | Backups are written and verified; restore UI not built yet |
 | Initialize disk (RAW → GPT/MBR) | ⏳ P3 | |
