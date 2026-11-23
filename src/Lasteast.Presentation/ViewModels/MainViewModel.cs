@@ -88,7 +88,7 @@ public sealed class MainViewModel : ObservableObject
         }, () => !_privileges.IsElevated && !IsSampleData);
         SmartFixPage = new SmartFixPageViewModel(Queue, systemProbe ?? new Core.SmartFix.NullSystemProbe(), RefreshAsync,
             () => SelectedNav = PendingNav, RestartElevatedCommand,
-            key => { var n = NavGroups.SelectMany(g => g.Items).FirstOrDefault(i => i.TitleKey == key); if (n is not null) SelectedNav = n; });
+            key => { var n = NavGroups!.SelectMany(g => g.Items).FirstOrDefault(i => i.TitleKey == key); if (n is not null) SelectedNav = n; });
         var fileRemover = remover ?? new Core.Cleanup.PermanentFileRemover();
         AnalyzerPage = new StorageAnalyzerViewModel(shell, fileRemover);
         CleanupPage = new CleanupPageViewModel(new Core.Cleanup.CleanupService(fileRemover), cleanupTargets ?? Array.Empty<Core.Cleanup.CleanupTarget>(), privileges);

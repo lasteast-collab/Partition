@@ -10,7 +10,7 @@ internal sealed class TempTree : IDisposable
 
     public string File(string rel, int bytes, byte fill = 1, DateTime? mtime = null)
     {
-        var p = Path.Combine(Root, rel);
+        var p = Path.Combine(Root, rel.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(p)!);
         var data = new byte[bytes];
         Array.Fill(data, fill);
