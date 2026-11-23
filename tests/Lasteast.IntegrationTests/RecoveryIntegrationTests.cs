@@ -154,7 +154,7 @@ public static class RecoveryIntegrationTests
                 Assert.True(f!.Recoverability != Recoverability.Unrecoverable, $"{phase}: {name}: {f.Recoverability} {f.Note}");
                 using var ms = new MemoryStream();
                 rd.Extract(f, ms, CancellationToken.None);
-                Assert.True(ms.ToArray().AsSpan().SequenceEqual(data), $"{phase}: {name} ({f.Recoverability}, size {f.Size}): {Diff(ms.ToArray(), data)}");
+                Assert.True(ms.ToArray().AsSpan().SequenceEqual(data), $"{phase}: {name} ({f.Recoverability}, size {f.Size}): {Diff(ms.ToArray(), data)} {(rd as NtfsRecoveryReader)?.Describe(f)}");
             }
         }
         Check("before delete", existing: true);

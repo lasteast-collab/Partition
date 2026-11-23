@@ -572,6 +572,34 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
         return parent.Length == 0 ? d.Name : parent + "\\" + d.Name;
     }
 
+    /// <summary>Technical description of a file's MFT records (for technician logs and diagnostics).</summary>
+    public string Describe(RecoverableFile file)
+    {
+        var buf = new byte[_recordSize];
+        if (!ReadRecord(file.Id, buf)) return "record unreadable";
+        var sb = new StringBuilder();
+        foreach (var rec in RecordSet(file.Id, buf))
+        {
+            sb.Append($"[rec flags={BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(0x16))} base={BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(0x20)) & 0xFFFFFFFFFFFF}");
+            foreach (var (type, off, len) in Attributes(rec))
+            {
+                sb.Append($" {type:X2}");
+                if (rec[off + 8] != 0)
+                {
+                    long sv = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x10)), ev = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x18));
+                    int runOff = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(off + 0x20));
+                    var runs = DecodeRuns(rec, off + runOff, off + len, sv);
+                    sb.Append($"(vcn {sv}-{ev}, runs {runs.Count}/{runs.Sum(r => r.Count)}cl");
+                    if (sv == 0) sb.Append($", alloc {BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x28))} size {BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x30))} init {BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x38))}");
+                    sb.Append(')');
+                }
+                else if (type == 0x20) sb.Append($"(resident {BinaryPrimitives.ReadInt32LittleEndian(rec.AsSpan(off + 0x10))}b)");
+            }
+            sb.Append(']');
+        }
+        return sb.ToString();
+    }
+
     public long Extract(RecoverableFile file, Stream output, CancellationToken ct)
     {
         if (!_records.TryGetValue(file.Id, out var r)) throw new RawOperationException("Rec.Error.Unknown", "scan the volume first");
