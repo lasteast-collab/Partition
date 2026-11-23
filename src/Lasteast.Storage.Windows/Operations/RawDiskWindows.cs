@@ -467,7 +467,13 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
                 await Raw(() =>
                 {
                     var backup = Lasteast.Core.Boot.TableBackups.Load(rt.BackupFolder, (int)liveDisk.BytesPerLogicalSector);
+                    if ((ulong)backup.DiskSize != liveDisk.SizeBytes) throw new RawOperationException("Restore.Error.Size", "");
                     using var locks = LockWhatCanBeLocked(liveDisk);
+                    if (DriveLayoutWriter.Supports(backup))
+                    {
+                        DriveLayoutWriter.Apply(liveDisk, backup);
+                        return;
+                    }
                     using var dev = new PhysicalDiskDevice(liveDisk, writable: true);
                     Lasteast.Core.Boot.TableBackups.Apply(dev, backup);
                     dev.Rescan();

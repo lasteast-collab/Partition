@@ -265,3 +265,39 @@ public static class HealthTests
         finally { Directory.Delete(dir, true); }
     }
 }
+
+public static class DriveLayoutWriterTests
+{
+    [Test]
+    public static void Set_layout_buffer_round_trips_through_the_get_layout_parser()
+    {
+        foreach (var gpt in new[] { true, false })
+        {
+            using var img = gpt ? DiskImage.GptWithVolumes(96) : DiskImage.MbrWithVolumes(96);
+            var b = new TableBackup
+            {
+                Folder = "x", Created = DateTimeOffset.Now, DiskSize = 96UL << 20, Style = gpt ? PartitionStyle.Gpt : PartitionStyle.Mbr,
+                Partitions = Array.Empty<(ulong, ulong)>(), Head = img.Get(0, 1 << 20), Tail = img.Get((96L << 20) - (1 << 20), 1 << 20),
+            };
+            var buf = Lasteast.Storage.Windows.Operations.DriveLayoutWriter.Build(b, 512);
+            var layout = Lasteast.Storage.Windows.Interop.StructParsers.ParseDriveLayout(buf);
+            var parts = layout.Partitions.Where(p => p.Length > 0).ToList();
+            Assert.Equal(2, parts.Count);
+            Assert.Equal(1UL << 20, parts[0].Offset);
+            Assert.Equal(24UL << 20, parts[0].Length);
+            Assert.Equal(32UL << 20, parts[1].Offset);
+            if (gpt)
+            {
+                Assert.Equal(PartitionTypes.GptBasicData, parts[0].GptType);
+                Assert.Equal("NTFS data", parts[0].GptName);
+                Assert.True(layout.GptDiskId is { } g && g != Guid.Empty);
+            }
+            else
+            {
+                Assert.Equal((byte)0x0C, parts[1].MbrType);
+                Assert.True(parts[0].MbrBoot);
+                Assert.Equal((uint?)0x12345678, layout.MbrSignature);
+            }
+        }
+    }
+}
