@@ -85,7 +85,7 @@ public sealed class SmartFixPageViewModel : PageViewModel
         _openPending = openPending;
         _elevate = elevate;
         ScanCommand = new AsyncRelayCommand(ScanAsync, ex => { Message = ex.Message; Scanning = false; });
-        ExpandCCommand = new RelayCommand(() => Queue(_cplan?.Operation is { } op ? new DiskOperation[] { op } : Array.Empty<DiskOperation>()),
+        ExpandCCommand = new RelayCommand(() => Queue(_cplan?.Operations ?? Array.Empty<DiskOperation>()),
             () => _cplan?.CanExpand == true);
     }
 
@@ -109,6 +109,7 @@ public sealed class SmartFixPageViewModel : PageViewModel
     public double CDriveUsedFraction => _cplan?.Partition?.Volume is { CapacityBytes: > 0, UsedBytes: { } u } v ? (double)u / v.CapacityBytes!.Value : 0;
     public string CDriveStatus => _cplan is null ? "" : _cplan.Blocker switch
     {
+        CDriveBlocker.None when _cplan.MoveFirst is not null => Loc.Instance.Format("SF.C.CanExpandAfterMove", Size(_cplan.AdjacentFreeBytes), Size(_cplan.MaxSizeBytes)),
         CDriveBlocker.None => Loc.Instance.Format("SF.C.CanExpand", Size(_cplan.AdjacentFreeBytes), Size(_cplan.MaxSizeBytes)),
         CDriveBlocker.PartitionInTheWay => Loc.Instance.Format("SF.C.Blocked",
             _cplan.BlockingPartition is { } b ? Role(b.Role) + (b.Volume?.DriveLetter is { } l ? $" ({l}:)" : "") : "?", Size(_cplan.OtherFreeBytesOnDisk)),

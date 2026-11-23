@@ -451,6 +451,7 @@
   "SF.Benefit.Space": "Gain : {0}",
   "SF.C.Blocked": "C: ne peut pas encore grandir : la partition {0} le suit directement. {1} d’espace libre existe ailleurs sur le disque, mais l’utiliser exige de déplacer cette partition (moteur de déplacement, phase 5).",
   "SF.C.CanExpand": "{0} d’espace non alloué suit directement C:. C: peut atteindre {1} sans déplacer de partition.",
+  "SF.C.CanExpandAfterMove": "La partition de récupération se trouve entre C: et {0} d’espace non alloué. Lasteast peut la déplacer en fin de disque puis agrandir C: à {1}.",
   "SF.C.Expand": "Agrandir C:",
   "SF.C.NoFree": "Aucun espace non alloué. Libérez de l’espace avec Nettoyage et l’analyseur, ou réduisez puis déplacez une autre partition (phase 5).",
   "SF.C.NotEditable": "Lasteast ne peut pas modifier le disque Windows (disposition dynamique ou non prise en charge).",

@@ -53,7 +53,7 @@ Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not 
 | Checks: C: space, other volumes' space, partition-table consistency, alignment, unreadable volumes, unallocated space, MBR > 2 TB, TRIM, dynamic disks, EFI partition, recovery partition, temp files, Recycle Bin, hibernation file, elevation | ✅ | Read-only measurements (`WindowsSystemProbe`, time-boxed) |
 | "Fix now" → pending queue → preview → confirm → engine → verify | ✅ | Smart Fix never executes anything itself |
 | One-click C: expansion (module 9) into adjacent unallocated space | ✅ | Max size computed; validated by the simulator |
-| C: expansion when another partition is in the way (e.g. recovery) | 🟡 | Possible manually since P5 (move Recovery, then extend C:); not yet a one-click Smart Fix |
+| C: expansion when the Recovery partition is in the way | ✅ P5 | One click queues "move Recovery to the end" + "extend C:"; other blocking partitions are explained only |
 | Disk health / SMART in the scan | ⏳ P9 | Listed as "not measured yet", never guessed |
 | BitLocker status, file-system dirty bit, WinRE status | ⏳ P8–P10 | Need elevation / APIs not yet integrated |
 | Cleanup actions for temp files and duplicates | ✅ P4 | Via Cleanup / Storage Analyzer pages |

@@ -96,7 +96,11 @@ public sealed record CDrivePlan
     public PartitionInfo? BlockingPartition { get; init; }
     public ulong MaxSizeBytes { get; init; }
     public ResizePartitionOp? Operation { get; init; }
+    /// <summary>Set when the Recovery partition must move first: move + extend, in that order.</summary>
+    public MovePartitionOp? MoveFirst { get; init; }
     public bool CanExpand => Operation is not null;
+    public IReadOnlyList<DiskOperation> Operations =>
+        Operation is null ? Array.Empty<DiskOperation>() : MoveFirst is null ? new DiskOperation[] { Operation } : new DiskOperation[] { MoveFirst, Operation };
 }
 
 public static class CDriveExpansion
@@ -134,6 +138,27 @@ public static class CDriveExpansion
 
         var next = disk.Partitions.Where(p => p.OffsetBytes >= c.EndBytes && p.Role != PartitionRole.MbrExtended)
                                   .OrderBy(p => p.OffsetBytes).FirstOrDefault();
+
+        // Typical layout: C: | Recovery | free space. Move Recovery to the end of the free space, then extend C:.
+        if (next is { Role: PartitionRole.Recovery })
+        {
+            var boundary = LayoutSimulator.NextBoundary(disk, next);
+            var target = boundary >= next.SizeBytes ? (boundary - next.SizeBytes) / LayoutSimulator.MiB * LayoutSimulator.MiB : 0;
+            if (target > next.OffsetBytes && target - next.OffsetBytes >= MinimumUsefulBytes)
+            {
+                var move = new MovePartitionOp(disk.Number, next.OffsetBytes, target, next.SizeBytes);
+                var newMax = (target - c.OffsetBytes) / LayoutSimulator.MiB * LayoutSimulator.MiB;
+                var extend = new ResizePartitionOp(disk.Number, c.OffsetBytes, newMax);
+                var sim = LayoutSimulator.Simulate(disk, new DiskOperation[] { move, extend });
+                if (sim.IsValid)
+                    return new CDrivePlan
+                    {
+                        Blocker = CDriveBlocker.None, Disk = disk, Partition = c, AdjacentFreeBytes = newMax - c.SizeBytes,
+                        OtherFreeBytesOnDisk = otherFree, BlockingPartition = next, MaxSizeBytes = newMax, Operation = extend, MoveFirst = move,
+                    };
+            }
+        }
+
         return new CDrivePlan
         {
             Blocker = otherFree >= MinimumUsefulBytes ? CDriveBlocker.PartitionInTheWay : CDriveBlocker.NoFreeSpace,
@@ -186,7 +211,7 @@ public static class SmartFixAnalyzer
                     RecommendationArgs = new object[] { cplan.AdjacentFreeBytes },
                     BenefitKey = cplan.CanExpand ? "SF.Benefit.Space" : null, BenefitArgs = new object[] { cplan.AdjacentFreeBytes },
                     Fix = cplan.CanExpand ? FixKind.QueueOperations : FixKind.Navigate, NavigateTo = cplan.CanExpand ? null : "Nav.Cleanup",
-                    Operations = cplan.Operation is { } op ? new DiskOperation[] { op } : Array.Empty<DiskOperation>(),
+                    Operations = cplan.Operations,
                     Risk = FixRisk.Medium, BackupRecommended = true, DiskNumber = cplan.Disk?.Number,
                 });
             }

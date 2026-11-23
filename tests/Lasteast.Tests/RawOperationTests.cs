@@ -177,3 +177,38 @@ public static class RawOperationTests
         Assert.True(q.Preview(clone).Any(i => i.IsError && i.Key == "Clone.Error.SourcePending"));
     }
 }
+
+public static class RecoveryMoveTests
+{
+    private const ulong MiB = 1024 * 1024;
+
+    [Test]
+    public static void C_expansion_moves_recovery_out_of_the_way_then_extends()
+    {
+        var inv = Fixtures.Real();
+        var win = inv.Disks.First(d => d.IsWindowsDisk);
+        var c = win.Partitions.First(p => p.Volume?.IsWindowsVolume == true);
+        // Layout: ... C: | Recovery (1 GiB) | 20 GiB free
+        var rec = new PartitionInfo
+        {
+            DiskNumber = win.Number, PartitionNumber = 9, OffsetBytes = c.EndBytes, SizeBytes = 1024 * MiB, Style = PartitionStyle.Gpt,
+            Role = PartitionRole.Recovery, GptType = PartitionTypes.GptWindowsRecovery,
+            Volume = new VolumeInfo { VolumeGuidPath = @"\\?\Volume{rec}", FileSystem = "NTFS", CapacityBytes = 1024 * MiB, FreeBytes = 500 * MiB },
+        };
+        var parts = win.Partitions.Where(p => p.OffsetBytes < c.EndBytes).Append(rec).ToList();
+        var disk = win with { Partitions = parts, SizeBytes = rec.EndBytes + 20 * Fixtures.GiB + 2 * MiB, UsableEndBytes = rec.EndBytes + 20 * Fixtures.GiB };
+        var inv2 = inv with { Disks = inv.Disks.Select(d => d.Number == win.Number ? disk : d).ToList() };
+
+        var plan = Lasteast.Core.SmartFix.CDriveExpansion.Analyze(inv2);
+        Assert.True(plan.CanExpand, plan.Blocker.ToString());
+        Assert.True(plan.MoveFirst is not null);
+        Assert.Equal(2, plan.Operations.Count);
+        Assert.True(plan.Operations[0] is MovePartitionOp);
+        var sim = LayoutSimulator.Simulate(disk, plan.Operations);
+        Assert.True(sim.IsValid, string.Join(",", sim.AllIssues.Select(i => i.Key)));
+        var newRec = sim.After.Partitions.Single(p => p.Role == PartitionRole.Recovery);
+        Assert.Equal(disk.UsableEndBytes, newRec.EndBytes);
+        Assert.Equal(newRec.OffsetBytes, sim.After.Partitions.Single(p => p.Volume?.IsWindowsVolume == true).EndBytes);
+        Assert.True(sim.AllIssues.Any(i => i.Key == "Move.Warn.Recovery"));
+    }
+}

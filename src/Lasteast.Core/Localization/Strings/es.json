@@ -451,6 +451,7 @@
   "SF.Benefit.Space": "Ganancia: {0}",
   "SF.C.Blocked": "C: aún no puede crecer: la partición {0} está justo después. Hay {1} libres en otra parte del disco, pero usarlos requiere mover esa partición (motor de movimiento, fase 5).",
   "SF.C.CanExpand": "Hay {0} sin asignar justo después de C:. C: puede crecer hasta {1} sin mover particiones.",
+  "SF.C.CanExpandAfterMove": "La partición de recuperación está entre C: y {0} sin asignar. Lasteast puede moverla al final del disco y después ampliar C: hasta {1}.",
   "SF.C.Expand": "Ampliar C:",
   "SF.C.NoFree": "No hay espacio sin asignar. Libera espacio con Limpieza y el analizador, o reduce y mueve otra partición (fase 5).",
   "SF.C.NotEditable": "Lasteast no puede modificar el disco de Windows (diseño dinámico o no compatible).",

@@ -37,7 +37,7 @@ public static class SmartFixTests
     }
 
     [Test]
-    public static void C_expansion_explains_recovery_partition_blocker()
+    public static void C_expansion_moves_recovery_partition_blocker()
     {
         var inv = Fixtures.Real();
         // free space at the very end, after the recovery partition
@@ -45,10 +45,18 @@ public static class SmartFixTests
         var grown = d0 with { SizeBytes = d0.SizeBytes + 20 * GiB, UsableEndBytes = d0.UsableEndBytes + 20 * GiB };
         inv = inv with { Disks = inv.Disks.Select(d => d.Number == 0 ? grown : d).ToList() };
         var plan = CDriveExpansion.Analyze(inv);
-        Assert.Equal(CDriveBlocker.PartitionInTheWay, plan.Blocker);
+        // Since Phase 5 the recovery partition is moved to the end and C: is extended.
+        Assert.Equal(CDriveBlocker.None, plan.Blocker);
         Assert.Equal(PartitionRole.Recovery, plan.BlockingPartition!.Role);
         Assert.True(plan.OtherFreeBytesOnDisk >= 20 * GiB);
-        Assert.True(!plan.CanExpand);
+        Assert.True(plan.CanExpand && plan.MoveFirst is not null);
+        Assert.True(plan.AdjacentFreeBytes >= 20 * GiB - 2 * 1024 * 1024);
+
+        // A non-recovery partition in the way is still only explained.
+        var other = grown with { Partitions = grown.Partitions.Select(p => p.Role == PartitionRole.Recovery ? p with { Role = PartitionRole.BasicData, GptType = PartitionTypes.GptBasicData } : p).ToList() };
+        var plan2 = CDriveExpansion.Analyze(inv with { Disks = inv.Disks.Select(d => d.Number == 0 ? other : d).ToList() });
+        Assert.Equal(CDriveBlocker.PartitionInTheWay, plan2.Blocker);
+        Assert.True(!plan2.CanExpand);
 
         Assert.Equal(CDriveBlocker.NoFreeSpace, CDriveExpansion.Analyze(Fixtures.Real()).Blocker);
     }

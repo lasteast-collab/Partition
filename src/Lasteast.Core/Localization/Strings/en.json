@@ -451,6 +451,7 @@
   "SF.Benefit.Space": "Gain: {0}",
   "SF.C.Blocked": "C: cannot grow yet: the {0} partition sits right after it. {1} of free space exists elsewhere on the disk, but using it requires moving that partition, which arrives with the partition-move engine (Phase 5).",
   "SF.C.CanExpand": "{0} of unallocated space follows C: directly. C: can grow to {1} without moving any partition.",
+  "SF.C.CanExpandAfterMove": "The Recovery partition sits between C: and {0} of unallocated space. Lasteast can move it to the end of the disk and then grow C: to {1}.",
   "SF.C.Expand": "Expand C:",
   "SF.C.NoFree": "There is no unallocated space on this disk. Free space with Cleanup and the Storage Analyzer, or shrink another partition and move it (Phase 5).",
   "SF.C.NotEditable": "The Windows disk cannot be changed by Lasteast (dynamic or unsupported layout).",

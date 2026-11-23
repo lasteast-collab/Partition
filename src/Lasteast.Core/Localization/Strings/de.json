@@ -451,6 +451,7 @@
   "SF.Benefit.Space": "Gewinn: {0}",
   "SF.C.Blocked": "C: kann noch nicht wachsen: Die Partition {0} folgt direkt danach. An anderer Stelle sind {1} frei, dafür muss diese Partition verschoben werden (Verschiebe-Engine, Phase 5).",
   "SF.C.CanExpand": "Direkt nach C: liegen {0} nicht zugeordneter Platz. C: kann ohne Verschieben auf {1} wachsen.",
+  "SF.C.CanExpandAfterMove": "Die Wiederherstellungspartition liegt zwischen C: und {0} nicht zugeordnetem Platz. Lasteast kann sie ans Datenträgerende verschieben und C: dann auf {1} vergrößern.",
   "SF.C.Expand": "C: erweitern",
   "SF.C.NoFree": "Kein nicht zugeordneter Platz. Platz schaffen mit Bereinigung und Analyse oder andere Partition verkleinern und verschieben (Phase 5).",
   "SF.C.NotEditable": "Lasteast kann den Windows-Datenträger nicht ändern (dynamisch oder nicht unterstützt).",
