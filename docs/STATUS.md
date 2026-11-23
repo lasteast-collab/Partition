@@ -7,7 +7,19 @@ Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not 
 > freshly created VHDX virtual disks (create/format/resize/label/letter, MBR↔GPT conversion, partition move,
 > disk clone, bcdboot onto an ESP, offline registry edit, undelete of files deleted by Windows, restore of a partition deleted by diskpart, BCD parsing, table restore from the engine's automatic backup, NVMe health log, unbuffered benchmark, surface test, virtdisk.dll create/attach + initialize) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
 
-## Phase 10 — Advanced & technician  (this build)
+## Phase 11 — Packaging & release  (1.0.0-preview.1)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Self-contained app + single-file CLI (also the rescue payload) | ✅ | Built by CI on every push |
+| Installer (Inno Setup): admin install, Start menu, optional desktop icon, uninstaller, branded wizard, 6–7 languages | ✅ | Silent install → installed CLI run → uninstall is tested in CI |
+| Portable zip (`portable` marker included) | ✅ | |
+| GitHub release on `v*` tags (pre-release) | ✅ | |
+| Splash screen and first-run welcome (safety model, scan, practice on a virtual disk) | ✅ | |
+| Code signing | ⏳ | Needs a certificate; until then SmartScreen may warn |
+| Rescue CLI inside Windows PE | 🟡 | Self-contained .NET 8 console; not yet booted in WinPE in CI |
+
+## Phase 10 — Advanced & technician
 
 | Feature | Status | Notes |
 |---|---|---|
