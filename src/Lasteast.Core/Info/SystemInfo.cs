@@ -40,4 +40,10 @@ public interface IVirtualDiskManager
     string AttachReadOnly(string path);
     void Detach(string path);
     string? BackingFile(string devicePath);
+    /// <summary>File operations (the file must be detached). They change the .vhd/.vhdx file, never a host partition.</summary>
+    void Expand(string path, ulong newSizeBytes);
+    void Shrink(string path, ulong? newSizeBytes);
+    void Compact(string path);
+    /// <summary>Block-level copy into a new file: clone (same format) or VHD ↔ VHDX conversion.</summary>
+    void Convert(string source, string destination, bool dynamic);
 }

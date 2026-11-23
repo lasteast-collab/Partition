@@ -140,3 +140,38 @@ public static class Batch1IntegrationTests
         Assert.True((await vd.ReadAsync()).Partitions.Single(x => x.OffsetBytes == p.OffsetBytes).Role != PartitionRole.MbrLogical);
     }
 }
+
+[SupportedOSPlatform("windows")]
+public static class VirtualDiskFileTests
+{
+    [Test]
+    public static async Task Expand_shrink_compact_and_convert_virtual_disk_files()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "lasteast-itest", "vdf-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var vhdx = Path.Combine(dir, "a.vhdx");
+        var vhd = Path.Combine(dir, "a.vhd");
+        var mgr = new Lasteast.Storage.Windows.Info.WindowsVirtualDiskManager();
+        mgr.Create(vhdx, 64UL * 1024 * 1024, dynamic: true);
+        mgr.Expand(vhdx, 128UL * 1024 * 1024);
+        async Task<ulong> SizeOf(string path)
+        {
+            var dev = mgr.AttachReadOnly(path);
+            try
+            {
+                var inv = await new WindowsStorageInventoryProvider().GetInventoryAsync();
+                return inv.Disks.Single(d => string.Equals(d.DevicePath, dev, StringComparison.OrdinalIgnoreCase)).SizeBytes;
+            }
+            finally { mgr.Detach(path); }
+        }
+        Assert.Equal(128UL * 1024 * 1024, await SizeOf(vhdx));
+        mgr.Compact(vhdx);
+        mgr.Convert(vhdx, vhd, dynamic: true);
+        Assert.Equal(128UL * 1024 * 1024, await SizeOf(vhd));
+        mgr.Shrink(vhdx, 96UL * 1024 * 1024); // empty disk: shrinking into unallocated space is safe
+        Assert.Equal(96UL * 1024 * 1024, await SizeOf(vhdx));
+        bool refused = false;
+        try { mgr.Shrink(vhd, null); } catch (OperationFailedException ex) { refused = ex.Key == "Vd.Error.ShrinkVhd"; }
+        Assert.True(refused, "VHD shrink refused");
+    }
+}

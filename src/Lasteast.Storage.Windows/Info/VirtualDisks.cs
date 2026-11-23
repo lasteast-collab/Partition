@@ -26,6 +26,63 @@ public static class VirtualDiskService
         [FieldOffset(48)] public IntPtr ParentPath;
         [FieldOffset(56)] public IntPtr SourcePath;
         [FieldOffset(64)] public uint OpenFlags;
+        [FieldOffset(88)] public uint SourceDeviceId;
+        [FieldOffset(92)] public Guid SourceVendorId;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RESIZE_PARAMS { public uint Version; public uint Pad; public ulong NewSize; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct COMPACT_PARAMS { public uint Version; public uint Reserved; }
+
+    [DllImport("virtdisk.dll")]
+    private static extern uint ResizeVirtualDisk(SafeFileHandle h, uint flags, ref RESIZE_PARAMS parameters, IntPtr overlapped);
+    [DllImport("virtdisk.dll")]
+    private static extern uint CompactVirtualDisk(SafeFileHandle h, uint flags, ref COMPACT_PARAMS parameters, IntPtr overlapped);
+
+    /// <summary>Grows the virtual disk file's capacity (new space appears unallocated inside it). The file must not be attached.</summary>
+    public static void Expand(string path, ulong newSizeBytes)
+    {
+        using var h = Open(path);
+        var p = new RESIZE_PARAMS { Version = 1, NewSize = newSizeBytes / 512 * 512 };
+        Check(ResizeVirtualDisk(h, 0, ref p, IntPtr.Zero), "ResizeVirtualDisk");
+    }
+
+    /// <summary>
+    /// Shrinks a VHDX down to <paramref name="newSizeBytes"/>, or to the smallest size that keeps every partition when
+    /// null. Windows refuses any shrink that would cut into a partition (the unsafe flag is never used).
+    /// </summary>
+    public static void Shrink(string path, ulong? newSizeBytes)
+    {
+        if (!path.EndsWith(".vhdx", StringComparison.OrdinalIgnoreCase)) throw new OperationFailedException("Vd.Error.ShrinkVhd", path);
+        using var h = Open(path);
+        var p = new RESIZE_PARAMS { Version = 1, NewSize = (newSizeBytes ?? 0) / 512 * 512 };
+        Check(ResizeVirtualDisk(h, newSizeBytes is null ? 2u : 0u, ref p, IntPtr.Zero), "ResizeVirtualDisk");
+    }
+
+    /// <summary>Reclaims unused space inside a dynamically expanding file. Contents are unchanged.</summary>
+    public static void Compact(string path)
+    {
+        using var h = Open(path);
+        var p = new COMPACT_PARAMS { Version = 1 };
+        Check(CompactVirtualDisk(h, 0, ref p, IntPtr.Zero), "CompactVirtualDisk");
+    }
+
+    /// <summary>Creates <paramref name="destination"/> (VHD or VHDX by extension) as a block-level copy of <paramref name="source"/>: clone or format conversion. The source is only read.</summary>
+    public static void Convert(string source, string destination, bool dynamic)
+    {
+        if (File.Exists(destination)) throw new OperationFailedException("Vd.Error.Exists", destination);
+        var type = TypeFor(destination);
+        var src = TypeFor(source);
+        var sp = Marshal.StringToHGlobalUni(source);
+        try
+        {
+            var p = new CREATE_PARAMS_V2 { Version = 2, UniqueId = Guid.NewGuid(), SourcePath = sp, SourceDeviceId = src.DeviceId, SourceVendorId = src.VendorId };
+            Check(CreateVirtualDisk(ref type, destination, 0, IntPtr.Zero, dynamic ? 0u : 1u, 0, ref p, IntPtr.Zero, out var h), "CreateVirtualDisk");
+            h.Dispose();
+        }
+        finally { Marshal.FreeHGlobal(sp); }
     }
 
     [StructLayout(LayoutKind.Explicit, Size = 28)]
@@ -134,4 +191,8 @@ public sealed class WindowsVirtualDiskManager : Lasteast.Core.Info.IVirtualDiskM
     public string AttachReadOnly(string path) => VirtualDiskService.Attach(path, readOnly: true);
     public void Detach(string path) => VirtualDiskService.Detach(path);
     public string? BackingFile(string devicePath) => VirtualDiskService.BackingFile(devicePath);
+    public void Expand(string path, ulong newSizeBytes) => VirtualDiskService.Expand(path, newSizeBytes);
+    public void Shrink(string path, ulong? newSizeBytes) => VirtualDiskService.Shrink(path, newSizeBytes);
+    public void Compact(string path) => VirtualDiskService.Compact(path);
+    public void Convert(string source, string destination, bool dynamic) => VirtualDiskService.Convert(source, destination, dynamic);
 }

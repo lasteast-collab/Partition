@@ -23,6 +23,23 @@
                     <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}" />
                 </StackPanel>
             </Border>
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="{ui:Tr Vd.FileTools}" Style="{StaticResource Text.Section}" />
+                    <TextBlock Text="{ui:Tr Vd.FileToolsHint}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding PickFileCommand}" Content="{ui:Tr Vd.PickFile}" Padding="12,6" Margin="0,0,8,0" />
+                        <TextBlock Text="{Binding FilePath}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="600" />
+                    </StackPanel>
+                    <WrapPanel Margin="0,10,0,0" IsEnabled="{Binding HasFile}">
+                        <TextBox Text="{Binding NewSizeGb, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input}" Width="80" Margin="0,0,6,6" AutomationProperties.Name="{ui:Tr Editor.SizeGiB}" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding ExpandCommand}" Content="{ui:Tr Vd.Op.Expand}" Padding="10,4" Margin="0,0,6,6" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding ShrinkCommand}" Content="{ui:Tr Vd.Op.Shrink}" Padding="10,4" Margin="0,0,6,6" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding CompactCommand}" Content="{ui:Tr Vd.Op.Compact}" Padding="10,4" Margin="0,0,6,6" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding ConvertCommand}" Content="{ui:Tr Vd.Op.Convert}" Padding="10,4" Margin="0,0,6,6" />
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
             <Border Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="{ui:Tr Vd.Attached}" Style="{StaticResource Text.Section}" />

@@ -39,6 +39,61 @@ public sealed class VirtualDisksPageViewModel : PageViewModel
         _openPending = openPending;
         CreateCommand = new AsyncRelayCommand(CreateAsync, Err);
         AttachCommand = new AsyncRelayCommand(AttachAsync, Err);
+        PickFileCommand = new RelayCommand(() => { if (_shell.PickOpenFile("VHDX/VHD|*.vhdx;*.vhd") is { } f) FilePath = f; });
+        ExpandCommand = new AsyncRelayCommand(() => FileOpAsync("Vd.Op.Expand", path =>
+        {
+            if (!double.TryParse(_newSizeGb, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var gb) || gb <= 0)
+                throw new OperationFailedException("Editor.InvalidSize");
+            _vd!.Expand(path, (ulong)(gb * 1024 * 1024 * 1024) / (1024 * 1024) * (1024 * 1024));
+        }), Err);
+        ShrinkCommand = new AsyncRelayCommand(() => FileOpAsync("Vd.Op.Shrink", path => _vd!.Shrink(path, null)), Err);
+        CompactCommand = new AsyncRelayCommand(() => FileOpAsync("Vd.Op.Compact", path => _vd!.Compact(path)), Err);
+        ConvertCommand = new AsyncRelayCommand(ConvertAsync, Err);
+    }
+
+    private string? _file;
+    private string _newSizeGb = "32";
+    public string? FilePath { get => _file; set { Set(ref _file, value); OnPropertyChanged(nameof(HasFile)); } }
+    public bool HasFile => !string.IsNullOrEmpty(_file);
+    public string NewSizeGb { get => _newSizeGb; set => Set(ref _newSizeGb, value); }
+    public RelayCommand PickFileCommand { get; }
+    public AsyncRelayCommand ExpandCommand { get; }
+    public AsyncRelayCommand ShrinkCommand { get; }
+    public AsyncRelayCommand CompactCommand { get; }
+    public AsyncRelayCommand ConvertCommand { get; }
+
+    /// <summary>True when the file is attached right now (file operations need it detached).</summary>
+    private bool IsAttached(string path)
+    {
+        foreach (var d in _inv?.Disks.Where(d => d.Bus == BusKind.FileBackedVirtual) ?? Enumerable.Empty<DiskInfo>())
+        {
+            try { if (string.Equals(_vd?.BackingFile(d.DevicePath), path, StringComparison.OrdinalIgnoreCase)) return true; } catch { }
+        }
+        return false;
+    }
+
+    /// <summary>Operations on the .vhd/.vhdx file itself (never a host partition): confirmed, and only while detached.</summary>
+    private async Task FileOpAsync(string key, Action<string> op)
+    {
+        if (_vd is null) { Status = L("Rec.Unavailable"); return; }
+        if (_file is not { } path) { Status = L("Vd.PickFileFirst"); return; }
+        if (IsAttached(path)) { Status = L("Vd.DetachFirst"); return; }
+        if (!_shell.Confirm(L(key), Loc.Instance.Format(key + ".Confirm", path, _newSizeGb))) return;
+        Status = L("BootFix.Checking");
+        await Task.Run(() => op(path));
+        Status = Loc.Instance.Format(key + ".Done", path);
+    }
+
+    private async Task ConvertAsync()
+    {
+        if (_vd is null) { Status = L("Rec.Unavailable"); return; }
+        if (_file is not { } path) { Status = L("Vd.PickFileFirst"); return; }
+        if (IsAttached(path)) { Status = L("Vd.DetachFirst"); return; }
+        var target = _shell.PickSaveFile(Path.GetFileNameWithoutExtension(path) + "-copy" + (path.EndsWith(".vhd", StringComparison.OrdinalIgnoreCase) ? ".vhdx" : ".vhdx"), "VHDX|*.vhdx|VHD|*.vhd");
+        if (target is null) return;
+        Status = L("BootFix.Checking");
+        await Task.Run(() => _vd.Convert(path, target, _dynamic));
+        Status = Loc.Instance.Format("Vd.Op.Convert.Done", path, target);
     }
 
     private void Err(Exception ex) => Status = ex is OperationFailedException o ? Loc.Instance.Format(o.Key, o.Detail ?? "") : ex.Message;
