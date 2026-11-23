@@ -3,11 +3,25 @@
 Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not be built (see note)
 
 > **Build verification.** Every push is built and tested on GitHub Actions (`windows-latest`): the full solution
-> including the WPF app, 104 unit tests, and integration tests that run the real engine as administrator against
+> including the WPF app, 108 unit tests, and integration tests that run the real engine as administrator against
 > freshly created VHDX virtual disks (create/format/resize/label/letter, MBR↔GPT conversion, partition move,
-> disk clone, bcdboot onto an ESP, offline registry edit, undelete of files deleted by Windows, restore of a partition deleted by diskpart) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
+> disk clone, bcdboot onto an ESP, offline registry edit, undelete of files deleted by Windows, restore of a partition deleted by diskpart, BCD parsing, table restore from the engine's automatic backup) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
 
-## Phase 7 — Partition & file recovery  (this build)
+## Phase 8 — Boot recovery, rescue media, account recovery, backup  (this build)
+
+| Feature | Status | Notes |
+|---|---|---|
+| BCD viewer (bcdedit /enum all /v, localized headers) and BCD export | ✅ | Read-only; parsed on the CI runner's real store |
+| EFI system partition: list files, back up to Documents | ✅ | Temporary mount point, removed afterwards |
+| Rebuild boot files of the running Windows (RepairBootOp) | 🟡 | BCD exported first, then bcdboot; compiles and validates, not run in CI (would change the runner's boot store) |
+| Restore a partition table from Lasteast's automatic backup | ✅ | Manifest-verified; writes only table sectors; same disk (size/serial/model); refuses to drop the running Windows partition |
+| Lasteast Rescue Boot ISO from the user's own Windows ADK + WinPE add-on | 🟡 | copype → DISM (WMI, StorageWMI, Scripting, SecureStartup, FMAPI) → startnet.cmd → MakeWinPEMedia /ISO. Not run in CI (needs the ADK); the rescue payload (self-contained CLI) is produced by the Phase 11 release build |
+| Rescue menu (CLI): inventory, lost partitions, undelete to another disk, folder backup, boot rebuild of an installed Windows, account guidance | ✅ | Every write needs confirmation; boot rebuild needs typed APPLY and keeps the old BCD |
+| Module 39 — account recovery | ✅ guidance only | Microsoft account reset, local account security questions / reset disk / another admin, work/school (SSPR, IT), PIN reset, BitLocker recovery key locations, reset as last resort. No bypass, no credential access, no BitLocker circumvention — by design, permanently |
+| Data backup wizard | ✅ | Verify by SHA-256, never overwrites, skips links/cloud placeholders, refuses same disk and destination inside source |
+| Writing the ISO to USB from the app | ⏳ | Use MakeWinPEMedia /UFD (formats the USB drive) |
+
+## Phase 7 — Partition & file recovery
 
 | Feature | Status | Notes |
 |---|---|---|
