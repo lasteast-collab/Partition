@@ -1,0 +1,689 @@
+using System.Buffers.Binary;
+using System.Text;
+using Lasteast.Core.RawDisk;
+
+namespace Lasteast.Core.Recovery;
+
+/// <summary>A read-only window onto part of another device (a partition, or a found lost partition).</summary>
+public sealed class OffsetDevice : IBlockDevice
+{
+    private readonly IBlockDevice _inner;
+    private readonly long _offset;
+
+    public OffsetDevice(IBlockDevice inner, long offset, long length)
+    {
+        if (offset < 0 || length <= 0 || offset + length > inner.Length) throw new ArgumentOutOfRangeException(nameof(length), "window outside the device");
+        _inner = inner;
+        _offset = offset;
+        Length = length;
+    }
+
+    public long Length { get; }
+    public int SectorSize => _inner.SectorSize;
+
+    public void Read(long offset, Span<byte> buffer)
+    {
+        if (offset < 0 || offset + buffer.Length > Length) throw new IOException($"read outside the volume at {offset}");
+        _inner.Read(_offset + offset, buffer);
+    }
+
+    public void Write(long offset, ReadOnlySpan<byte> buffer) => throw new InvalidOperationException("recovery sources are read-only");
+    public void Flush() { }
+    public void Dispose() { }
+}
+
+public enum Recoverability
+{
+    /// <summary>Not deleted: content is intact.</summary>
+    Intact,
+    /// <summary>Deleted, but none of its clusters have been reused (or the data lives inside the file record).</summary>
+    Good,
+    /// <summary>Deleted, and some of its clusters are in use by other files now: content is probably damaged.</summary>
+    Poor,
+    /// <summary>The content cannot be read with this method (compressed, encrypted, or the location is lost).</summary>
+    Unrecoverable,
+}
+
+public sealed record RecoverableFile
+{
+    public required long Id { get; init; }
+    /// <summary>Folder path inside the volume, using '\' (empty for the root). "&lt;lost&gt;" when the parent folder is gone.</summary>
+    public required string Folder { get; init; }
+    public required string Name { get; init; }
+    public required long Size { get; init; }
+    public bool IsDeleted { get; init; }
+    public DateTime? Modified { get; init; }
+    public DateTime? Created { get; init; }
+    public Recoverability Recoverability { get; init; }
+    public string? Note { get; init; }
+    public string FullPath => Folder.Length == 0 ? Name : Folder + "\\" + Name;
+}
+
+public sealed record RecoveryScanProgress(long Done, long Total, int Found);
+
+/// <summary>A file system read straight from sectors (no Windows driver), so deleted entries and unmountable volumes are visible.</summary>
+public interface IRecoveryReader
+{
+    string FileSystem { get; }
+    string? Label { get; }
+    IReadOnlyList<RecoverableFile> Scan(bool includeExisting, IProgress<RecoveryScanProgress>? progress, CancellationToken ct);
+    /// <summary>Writes the file's content to <paramref name="output"/>; returns bytes written.</summary>
+    long Extract(RecoverableFile file, Stream output, CancellationToken ct);
+}
+
+public static class RecoveryReaders
+{
+    /// <summary>Opens the right reader for the volume's boot sector, or null when it is not NTFS/FAT32.</summary>
+    public static IRecoveryReader? Open(IBlockDevice volume)
+    {
+        var bs = new byte[512];
+        volume.Read(0, bs);
+        if (bs.AsSpan(3, 8).SequenceEqual("NTFS    "u8)) return new NtfsRecoveryReader(volume);
+        if (bs.AsSpan(82, 8).SequenceEqual("FAT32   "u8)) return new Fat32RecoveryReader(volume);
+        return null;
+    }
+
+    internal static string SafeName(string name)
+    {
+        var sb = new StringBuilder(name.Length);
+        foreach (var ch in name) sb.Append(ch < 32 || "<>:\"/\\|?*".Contains(ch) ? '_' : ch);
+        var s = sb.ToString().TrimEnd(' ', '.');
+        return s.Length == 0 ? "_" : s;
+    }
+}
+
+public sealed record RecoveryReport(int Recovered, int Failed, long Bytes, IReadOnlyList<(string File, string Error)> Errors);
+
+/// <summary>Copies recovered files into a folder that must not be on the disk being recovered (that could overwrite the data).</summary>
+public static class RecoveryWriter
+{
+    /// <param name="destinationDisk">Disk number that holds <paramref name="destinationFolder"/> (null: not a local disk, e.g. a network share).</param>
+    public static RecoveryReport Recover(IRecoveryReader reader, IEnumerable<RecoverableFile> files, string destinationFolder,
+        int sourceDisk, int? destinationDisk, IProgress<RecoveryScanProgress>? progress, CancellationToken ct)
+    {
+        if (destinationDisk == sourceDisk)
+            throw new RawOperationException("Rec.Error.SameDisk", "the destination folder is on the disk being recovered");
+        var list = files.ToList();
+        int ok = 0, n = 0;
+        long bytes = 0;
+        var errors = new List<(string, string)>();
+        foreach (var f in list)
+        {
+            ct.ThrowIfCancellationRequested();
+            n++;
+            if (f.Recoverability == Recoverability.Unrecoverable) { errors.Add((f.FullPath, f.Note ?? "unrecoverable")); continue; }
+            var folder = Path.Combine(new[] { destinationFolder }.Concat(f.Folder.Split('\\', StringSplitOptions.RemoveEmptyEntries).Select(RecoveryReaders.SafeName)).ToArray());
+            try
+            {
+                Directory.CreateDirectory(folder);
+                var target = Unique(Path.Combine(folder, RecoveryReaders.SafeName(f.Name)));
+                using (var fs = new FileStream(target, FileMode.CreateNew, FileAccess.Write))
+                    bytes += reader.Extract(f, fs, ct);
+                if (f.Modified is { } m) File.SetLastWriteTimeUtc(target, m);
+                if (f.Created is { } c) File.SetCreationTimeUtc(target, c);
+                ok++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or RawOperationException)
+            {
+                errors.Add((f.FullPath, ex.Message));
+            }
+            progress?.Report(new RecoveryScanProgress(n, list.Count, ok));
+        }
+        return new RecoveryReport(ok, errors.Count, bytes, errors);
+    }
+
+    private static string Unique(string path)
+    {
+        if (!File.Exists(path)) return path;
+        var dir = Path.GetDirectoryName(path)!;
+        var stem = Path.GetFileNameWithoutExtension(path);
+        var ext = Path.GetExtension(path);
+        for (int i = 1; ; i++)
+        {
+            var p = Path.Combine(dir, $"{stem} ({i}){ext}");
+            if (!File.Exists(p)) return p;
+        }
+    }
+}
+
+// =============================================================================================
+//  NTFS
+// =============================================================================================
+
+/// <summary>
+/// Reads NTFS by parsing the MFT directly: existing and deleted file records, paths through parent references,
+/// resident and non-resident data (data runs), and the cluster bitmap to judge whether deleted data was overwritten.
+/// Compressed and encrypted files are listed but not extracted. Files whose data is described in extension records
+/// (attribute lists; very fragmented or huge files) are listed as unrecoverable by this reader.
+/// </summary>
+public sealed class NtfsRecoveryReader : IRecoveryReader
+{
+    private readonly IBlockDevice _vol;
+    private readonly int _bps;
+    private readonly long _clusterSize;
+    private readonly int _recordSize;
+    private readonly List<(long Vcn, long Lcn, long Count)> _mftRuns;
+    private byte[]? _bitmap;
+    private readonly Dictionary<long, RecordInfo> _records = new();
+
+    private sealed record RecordInfo(long Number, ushort Sequence, bool InUse, bool IsDirectory, long ParentRef, ushort ParentSeq, string? Name,
+        long Size, DateTime? Created, DateTime? Modified, byte[]? Resident, List<(long Vcn, long Lcn, long Count)>? Runs, string? Problem);
+
+    public NtfsRecoveryReader(IBlockDevice volume)
+    {
+        _vol = volume;
+        var bs = new byte[512];
+        volume.Read(0, bs);
+        if (!bs.AsSpan(3, 8).SequenceEqual("NTFS    "u8)) throw new RawOperationException("Rec.Error.NotNtfs", "not an NTFS boot sector");
+        _bps = BinaryPrimitives.ReadUInt16LittleEndian(bs.AsSpan(0x0B));
+        int spcRaw = bs[0x0D];
+        int spc = spcRaw > 0x80 ? 1 << (256 - spcRaw) : spcRaw;
+        _clusterSize = (long)_bps * spc;
+        sbyte cpr = (sbyte)bs[0x40];
+        _recordSize = cpr < 0 ? 1 << -cpr : (int)(cpr * _clusterSize);
+        if (_bps is not (512 or 1024 or 2048 or 4096) || spc <= 0 || _recordSize is < 512 or > 65536)
+            throw new RawOperationException("Rec.Error.NotNtfs", "implausible NTFS geometry");
+        long mftLcn = BinaryPrimitives.ReadInt64LittleEndian(bs.AsSpan(0x30));
+
+        var rec0 = new byte[_recordSize];
+        _vol.Read(mftLcn * _clusterSize, rec0);
+        if (!ApplyFixups(rec0)) throw new RawOperationException("Rec.Error.Mft", "MFT record 0 is damaged");
+        _mftRuns = FindData(rec0, out _, out _, out _)?.Runs ?? throw new RawOperationException("Rec.Error.Mft", "MFT has no data runs");
+        Label = ReadLabel();
+    }
+
+    public string FileSystem => "NTFS";
+    public string? Label { get; }
+    public long ClusterSize => _clusterSize;
+
+    private long MftRecordCount => _mftRuns.Sum(r => r.Count) * _clusterSize / _recordSize;
+
+    private bool ReadRecord(long n, byte[] buf)
+    {
+        long byteOff = n * _recordSize;
+        // records may span clusters when cluster < record size
+        int done = 0;
+        while (done < _recordSize)
+        {
+            long v = (byteOff + done) / _clusterSize;
+            var run = _mftRuns.FirstOrDefault(r => v >= r.Vcn && v < r.Vcn + r.Count);
+            if (run.Count == 0 || run.Lcn < 0) return false;
+            long pos = (run.Lcn + (v - run.Vcn)) * _clusterSize + (byteOff + done) % _clusterSize;
+            int chunk = (int)Math.Min(_recordSize - done, _clusterSize - (byteOff + done) % _clusterSize);
+            _vol.Read(pos, buf.AsSpan(done, chunk));
+            done += chunk;
+        }
+        return buf.AsSpan(0, 4).SequenceEqual("FILE"u8) && ApplyFixups(buf);
+    }
+
+    /// <summary>Update sequence array: the last two bytes of every sector hold the USN; restore the original bytes.</summary>
+    private bool ApplyFixups(byte[] rec)
+    {
+        int usaOff = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(4));
+        int usaCount = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(6));
+        if (usaOff + usaCount * 2 > rec.Length || usaCount == 0) return false;
+        ushort usn = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(usaOff));
+        if (usaCount < 2) return true;
+        int stride = rec.Length / (usaCount - 1);
+        for (int i = 1; i < usaCount; i++)
+        {
+            int end = i * stride - 2;
+            if (end + 2 > rec.Length) break;
+            if (BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(end)) != usn) return false; // torn write
+            rec[end] = rec[usaOff + i * 2];
+            rec[end + 1] = rec[usaOff + i * 2 + 1];
+        }
+        return true;
+    }
+
+    private static IEnumerable<(int Type, int Offset, int Length)> Attributes(byte[] rec)
+    {
+        int off = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(0x14));
+        int used = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(rec.AsSpan(0x18)), (uint)rec.Length);
+        while (off + 16 <= used)
+        {
+            int type = BinaryPrimitives.ReadInt32LittleEndian(rec.AsSpan(off));
+            if (type == -1 || type == 0) yield break;
+            int len = BinaryPrimitives.ReadInt32LittleEndian(rec.AsSpan(off + 4));
+            if (len < 16 || off + len > used) yield break;
+            yield return (type, off, len);
+            off += len;
+        }
+    }
+
+    private sealed record DataInfo(byte[]? Resident, List<(long Vcn, long Lcn, long Count)>? Runs, long Size);
+
+    /// <summary>Unnamed $DATA: resident bytes or data runs. flags = attribute flags (compressed/encrypted/sparse).</summary>
+    private DataInfo? FindData(byte[] rec, out int flags, out bool hasAttrList, out bool partial)
+    {
+        flags = 0;
+        hasAttrList = false;
+        partial = false;
+        foreach (var (type, off, _) in Attributes(rec))
+        {
+            if (type == 0x20) hasAttrList = true;
+            if (type != 0x80 || rec[off + 9] != 0) continue;
+            flags = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(off + 0x0C));
+            if (rec[off + 8] == 0)
+            {
+                int vlen = BinaryPrimitives.ReadInt32LittleEndian(rec.AsSpan(off + 0x10));
+                int voff = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(off + 0x14));
+                if (off + voff + vlen > rec.Length) return null;
+                return new DataInfo(rec.AsSpan(off + voff, vlen).ToArray(), null, vlen);
+            }
+            long startVcn = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x10));
+            if (startVcn != 0) partial = true; // the rest lives in an extension record
+            int runOff = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(off + 0x20));
+            long size = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x30));
+            var runs = DecodeRuns(rec, off + runOff, off + BinaryPrimitives.ReadInt32LittleEndian(rec.AsSpan(off + 4)), startVcn);
+            long lastVcn = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x18));
+            if (runs.Sum(r => r.Count) < lastVcn - startVcn + 1) partial = true;
+            return new DataInfo(null, runs, size);
+        }
+        return null;
+    }
+
+    /// <summary>Data runs: header nibbles give the length/offset field sizes; offsets are relative and signed; no offset = sparse (Lcn -1).</summary>
+    public static List<(long Vcn, long Lcn, long Count)> DecodeRuns(byte[] rec, int pos, int end, long startVcn = 0)
+    {
+        var runs = new List<(long, long, long)>();
+        long vcn = startVcn, lcn = 0;
+        while (pos < end && rec[pos] != 0)
+        {
+            int lenSize = rec[pos] & 0x0F, offSize = rec[pos] >> 4;
+            if (lenSize == 0 || lenSize > 8 || offSize > 8 || pos + 1 + lenSize + offSize > end) break;
+            long count = 0;
+            for (int i = 0; i < lenSize; i++) count |= (long)rec[pos + 1 + i] << (8 * i);
+            if (offSize == 0)
+            {
+                runs.Add((vcn, -1, count));
+            }
+            else
+            {
+                long delta = 0;
+                for (int i = 0; i < offSize; i++) delta |= (long)rec[pos + 1 + lenSize + i] << (8 * i);
+                if ((rec[pos + lenSize + offSize] & 0x80) != 0) delta |= -1L << (8 * offSize); // sign extend
+                lcn += delta;
+                runs.Add((vcn, lcn, count));
+            }
+            vcn += count;
+            pos += 1 + lenSize + offSize;
+        }
+        return runs;
+    }
+
+    private string? ReadLabel()
+    {
+        var buf = new byte[_recordSize];
+        if (!ReadRecord(3, buf)) return null;
+        foreach (var (type, off, _) in Attributes(buf))
+        {
+            if (type != 0x60 || buf[off + 8] != 0) continue;
+            int vlen = BinaryPrimitives.ReadInt32LittleEndian(buf.AsSpan(off + 0x10));
+            int voff = BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(off + 0x14));
+            return Encoding.Unicode.GetString(buf, off + voff, vlen);
+        }
+        return null;
+    }
+
+    private bool ClusterInUse(long lcn)
+    {
+        if (_bitmap is null)
+        {
+            var buf = new byte[_recordSize];
+            var d = ReadRecord(6, buf) ? FindData(buf, out _, out _, out _) : null;
+            if (d is null) { _bitmap = Array.Empty<byte>(); }
+            else
+            {
+                using var ms = new MemoryStream();
+                Copy(d, ms, CancellationToken.None);
+                _bitmap = ms.ToArray();
+            }
+        }
+        if (_bitmap.Length == 0) return true; // unknown: assume the worst
+        long b = lcn >> 3;
+        return b >= _bitmap.Length || (_bitmap[b] & (1 << (int)(lcn & 7))) != 0;
+    }
+
+    private static DateTime? FileTime(long v) => v > 0 && v < DateTime.MaxValue.ToFileTimeUtc() ? DateTime.FromFileTimeUtc(v) : null;
+
+    public IReadOnlyList<RecoverableFile> Scan(bool includeExisting, IProgress<RecoveryScanProgress>? progress, CancellationToken ct)
+    {
+        _records.Clear();
+        long total = MftRecordCount;
+        var buf = new byte[_recordSize];
+        for (long n = 0; n < total; n++)
+        {
+            if ((n & 1023) == 0) { ct.ThrowIfCancellationRequested(); progress?.Report(new RecoveryScanProgress(n, total, _records.Count)); }
+            bool ok;
+            try { ok = ReadRecord(n, buf); }
+            catch (IOException) { ok = false; }
+            if (!ok) continue;
+            if (BinaryPrimitives.ReadInt64LittleEndian(buf.AsSpan(0x20)) != 0) continue; // extension record
+            ushort flags = BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(0x16));
+            ushort seq = BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(0x10));
+
+            string? name = null;
+            int bestNs = -1;
+            long parent = 0;
+            ushort parentSeq = 0;
+            DateTime? created = null, modified = null;
+            foreach (var (type, off, _) in Attributes(buf))
+            {
+                if (buf[off + 8] != 0) continue;
+                int voff = off + BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(off + 0x14));
+                if (type == 0x10 && voff + 16 <= buf.Length)
+                {
+                    created = FileTime(BinaryPrimitives.ReadInt64LittleEndian(buf.AsSpan(voff)));
+                    modified = FileTime(BinaryPrimitives.ReadInt64LittleEndian(buf.AsSpan(voff + 8)));
+                }
+                if (type == 0x30 && voff + 0x42 <= buf.Length)
+                {
+                    int ns = buf[voff + 0x41];
+                    int rank = ns switch { 1 => 3, 3 => 3, 0 => 2, _ => 1 }; // Win32 > POSIX > DOS
+                    if (rank <= bestNs) continue;
+                    int len = buf[voff + 0x40];
+                    if (voff + 0x42 + len * 2 > buf.Length) continue;
+                    bestNs = rank;
+                    long pref = BinaryPrimitives.ReadInt64LittleEndian(buf.AsSpan(voff));
+                    parent = pref & 0xFFFFFFFFFFFF;
+                    parentSeq = (ushort)(pref >> 48);
+                    name = Encoding.Unicode.GetString(buf, voff + 0x42, len * 2);
+                }
+            }
+            bool isDir = (flags & 0x02) != 0;
+            DataInfo? data = null;
+            string? problem = null;
+            if (!isDir)
+            {
+                data = FindData(buf, out var aflags, out var attrList, out var partial);
+                if ((aflags & 0x0001) != 0) problem = "compressed";
+                else if ((aflags & 0x4000) != 0) problem = "encrypted";
+                else if (data is null && attrList) problem = "data in extension records";
+                else if (partial) problem = "data in extension records";
+            }
+            _records[n] = new RecordInfo(n, seq, (flags & 0x01) != 0, isDir, parent, parentSeq, name, data?.Size ?? 0, created, modified,
+                data?.Resident, data?.Runs, problem);
+        }
+
+        var result = new List<RecoverableFile>();
+        foreach (var r in _records.Values)
+        {
+            if (r.IsDirectory || r.Name is null) continue;
+            if (r.Number < 24) continue; // metafiles
+            if (r.InUse && !includeExisting) continue;
+            var folder = PathOf(r.ParentRef, r.ParentSeq, 0);
+            if (folder.StartsWith('$')) continue; // $Extend etc.
+            var rec = Recoverability.Intact;
+            if (r.Problem is not null) rec = Recoverability.Unrecoverable;
+            else if (!r.InUse)
+                rec = r.Resident is not null ? Recoverability.Good
+                    : r.Runs is null ? Recoverability.Unrecoverable
+                    : r.Runs.Any(x => x.Lcn >= 0 && Enumerable.Range(0, (int)Math.Min(x.Count, int.MaxValue)).Any(i => ClusterInUse(x.Lcn + i))) ? Recoverability.Poor
+                    : Recoverability.Good;
+            result.Add(new RecoverableFile
+            {
+                Id = r.Number, Folder = folder, Name = r.Name, Size = r.Size, IsDeleted = !r.InUse, Created = r.Created, Modified = r.Modified,
+                Recoverability = rec, Note = r.Problem,
+            });
+        }
+        progress?.Report(new RecoveryScanProgress(total, total, result.Count));
+        return result.OrderBy(f => f.Folder, StringComparer.OrdinalIgnoreCase).ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private string PathOf(long dir, ushort seq, int depth)
+    {
+        if (dir == 5) return "";
+        if (depth > 64 || !_records.TryGetValue(dir, out var d) || !d.IsDirectory || d.Name is null || (seq != 0 && d.Sequence != seq && d.InUse))
+            return "<lost>";
+        var parent = PathOf(d.ParentRef, d.ParentSeq, depth + 1);
+        return parent.Length == 0 ? d.Name : parent + "\\" + d.Name;
+    }
+
+    public long Extract(RecoverableFile file, Stream output, CancellationToken ct)
+    {
+        if (!_records.TryGetValue(file.Id, out var r)) throw new RawOperationException("Rec.Error.Unknown", "scan the volume first");
+        if (r.Problem is not null) throw new RawOperationException("Rec.Error.Unsupported", r.Problem);
+        return Copy(new DataInfo(r.Resident, r.Runs, r.Size), output, ct);
+    }
+
+    private long Copy(DataInfo d, Stream output, CancellationToken ct)
+    {
+        if (d.Resident is not null) { output.Write(d.Resident); return d.Resident.Length; }
+        long remaining = d.Size, written = 0;
+        var buf = new byte[_clusterSize * 64];
+        foreach (var (_, lcn, count) in d.Runs!.OrderBy(x => x.Vcn))
+        {
+            for (long c = 0; c < count && remaining > 0; c += 64)
+            {
+                ct.ThrowIfCancellationRequested();
+                long n = Math.Min(64, count - c);
+                int len = (int)Math.Min(n * _clusterSize, remaining);
+                var span = buf.AsSpan(0, len);
+                if (lcn < 0) span.Clear();
+                else _vol.Read((lcn + c) * _clusterSize, span);
+                output.Write(span);
+                remaining -= len;
+                written += len;
+            }
+        }
+        if (remaining > 0) throw new RawOperationException("Rec.Error.Truncated", $"{remaining} bytes missing from the data runs");
+        return written;
+    }
+}
+
+// =============================================================================================
+//  FAT32
+// =============================================================================================
+
+/// <summary>
+/// Reads FAT32 directories including deleted entries (first character 0xE5, long names restored from LFN entries).
+/// Deleted files have their cluster chain cleared by Windows, so the content is read as a contiguous run from the
+/// start cluster — correct for unfragmented files, which is the common case; files whose clusters are now in use are marked Poor.
+/// </summary>
+public sealed class Fat32RecoveryReader : IRecoveryReader
+{
+    private readonly IBlockDevice _vol;
+    private readonly int _bps;
+    private readonly long _clusterSize;
+    private readonly long _dataStart;
+    private readonly uint[] _fat;
+    private readonly uint _rootCluster;
+    private readonly long _clusterCount;
+    private readonly Dictionary<long, (uint Cluster, bool Deleted)> _starts = new();
+
+    public Fat32RecoveryReader(IBlockDevice volume)
+    {
+        _vol = volume;
+        var bs = new byte[512];
+        volume.Read(0, bs);
+        if (!bs.AsSpan(82, 8).SequenceEqual("FAT32   "u8)) throw new RawOperationException("Rec.Error.NotFat", "not a FAT32 boot sector");
+        _bps = BinaryPrimitives.ReadUInt16LittleEndian(bs.AsSpan(0x0B));
+        int spc = bs[0x0D];
+        int reserved = BinaryPrimitives.ReadUInt16LittleEndian(bs.AsSpan(0x0E));
+        int fats = bs[0x10];
+        long total = BinaryPrimitives.ReadUInt32LittleEndian(bs.AsSpan(0x20));
+        long fatSize = BinaryPrimitives.ReadUInt32LittleEndian(bs.AsSpan(0x24));
+        _rootCluster = BinaryPrimitives.ReadUInt32LittleEndian(bs.AsSpan(0x2C));
+        if (_bps is not (512 or 1024 or 2048 or 4096) || spc == 0 || fats == 0 || fatSize == 0)
+            throw new RawOperationException("Rec.Error.NotFat", "implausible FAT32 geometry");
+        _clusterSize = (long)_bps * spc;
+        _dataStart = (reserved + fats * fatSize) * _bps;
+        _clusterCount = (total * _bps - _dataStart) / _clusterSize + 2;
+        var fatBytes = new byte[fatSize * _bps];
+        volume.Read((long)reserved * _bps, fatBytes);
+        _fat = new uint[Math.Min(fatBytes.Length / 4, _clusterCount)];
+        for (int i = 0; i < _fat.Length; i++) _fat[i] = BinaryPrimitives.ReadUInt32LittleEndian(fatBytes.AsSpan(i * 4)) & 0x0FFFFFFF;
+        var label = Encoding.ASCII.GetString(bs, 0x47, 11).Trim();
+        Label = label is "NO NAME" or "" ? null : label;
+    }
+
+    public string FileSystem => "FAT32";
+    public string? Label { get; }
+
+    private long ClusterOffset(uint c) => _dataStart + (c - 2) * _clusterSize;
+    private bool Valid(uint c) => c >= 2 && c < _clusterCount;
+
+    private List<uint> Chain(uint start)
+    {
+        var list = new List<uint>();
+        var seen = new HashSet<uint>();
+        for (uint c = start; Valid(c) && seen.Add(c) && list.Count < 1 << 22; c = c < _fat.Length ? _fat[c] : 0)
+        {
+            list.Add(c);
+            if (c >= _fat.Length || _fat[c] >= 0x0FFFFFF8 || _fat[c] == 0) break;
+        }
+        return list;
+    }
+
+    private static DateTime? DosTime(ushort date, ushort time)
+    {
+        if (date == 0) return null;
+        try
+        {
+            return new DateTime(1980 + (date >> 9), Math.Max(1, (date >> 5) & 15), Math.Max(1, date & 31),
+                time >> 11, (time >> 5) & 63, Math.Min(59, (time & 31) * 2), DateTimeKind.Local).ToUniversalTime();
+        }
+        catch (ArgumentOutOfRangeException) { return null; }
+    }
+
+    public IReadOnlyList<RecoverableFile> Scan(bool includeExisting, IProgress<RecoveryScanProgress>? progress, CancellationToken ct)
+    {
+        _starts.Clear();
+        var result = new List<RecoverableFile>();
+        var visited = new HashSet<uint>();
+        long id = 0;
+        var queue = new Queue<(uint Cluster, string Path, bool Deleted)>();
+        queue.Enqueue((_rootCluster, "", false));
+        while (queue.Count > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+            var (dirCluster, path, dirDeleted) = queue.Dequeue();
+            if (!visited.Add(dirCluster)) continue;
+            // a deleted directory has no chain: read its first cluster only
+            var clusters = dirDeleted ? new List<uint> { dirCluster } : Chain(dirCluster);
+            var lfn = new List<(int Order, string Part)>();
+            foreach (var c in clusters)
+            {
+                var buf = new byte[_clusterSize];
+                _vol.Read(ClusterOffset(c), buf);
+                for (int e = 0; e < buf.Length; e += 32)
+                {
+                    byte first = buf[e];
+                    if (first == 0x00) { lfn.Clear(); goto nextDir; }
+                    byte attr = buf[e + 11];
+                    if (attr == 0x0F)
+                    {
+                        var part = new StringBuilder();
+                        foreach (var (o, n) in new[] { (1, 5), (14, 6), (28, 2) })
+                            for (int k = 0; k < n; k++)
+                            {
+                                char ch = (char)BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(e + o + k * 2));
+                                if (ch is '\0' or '￿') goto done;
+                                part.Append(ch);
+                            }
+                        done:
+                        lfn.Add((first == 0xE5 ? lfn.Count + 1 : first & 0x1F, part.ToString()));
+                        continue;
+                    }
+                    bool deleted = first == 0xE5;
+                    if ((attr & 0x08) != 0 || (!deleted && first == 0x2E)) { lfn.Clear(); continue; }
+                    string shortName = ShortName(buf.AsSpan(e, 11));
+                    string name = lfn.Count > 0
+                        ? string.Concat((deleted ? lfn.AsEnumerable().Reverse().Select((x, i) => (Order: i + 1, x.Part)) : lfn).OrderBy(x => x.Order).Select(x => x.Part))
+                        : shortName;
+                    if (deleted && lfn.Count == 0) name = "_" + name[1..];
+                    lfn.Clear();
+                    if (name is "." or "..") continue;
+                    uint start = (uint)(BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(e + 20)) << 16 | BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(e + 26)));
+                    long size = BinaryPrimitives.ReadUInt32LittleEndian(buf.AsSpan(e + 28));
+                    var full = path.Length == 0 ? name : path + "\\" + name;
+                    bool isDeleted = deleted || dirDeleted;
+                    if ((attr & 0x10) != 0)
+                    {
+                        if (Valid(start)) queue.Enqueue((start, full, isDeleted));
+                        continue;
+                    }
+                    if (!isDeleted && !includeExisting) continue;
+                    var rec = !isDeleted ? Recoverability.Intact
+                        : size == 0 ? Recoverability.Good
+                        : !Valid(start) ? Recoverability.Unrecoverable
+                        : ContiguousFree(start, size) ? Recoverability.Good : Recoverability.Poor;
+                    _starts[id] = (start, isDeleted);
+                    result.Add(new RecoverableFile
+                    {
+                        Id = id++, Folder = path, Name = name, Size = size, IsDeleted = isDeleted,
+                        Modified = DosTime(BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(e + 24)), BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(e + 22))),
+                        Created = DosTime(BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(e + 16)), BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(e + 14))),
+                        Recoverability = rec,
+                    });
+                }
+            }
+            nextDir:
+            progress?.Report(new RecoveryScanProgress(visited.Count, visited.Count + queue.Count, result.Count));
+        }
+        return result.OrderBy(f => f.Folder, StringComparer.OrdinalIgnoreCase).ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private bool ContiguousFree(uint start, long size)
+    {
+        long n = (size + _clusterSize - 1) / _clusterSize;
+        for (long i = 0; i < n; i++)
+        {
+            long c = start + i;
+            if (c >= _fat.Length || _fat[c] != 0) return false;
+        }
+        return true;
+    }
+
+    private static string ShortName(ReadOnlySpan<byte> e)
+    {
+        var b = Encoding.Latin1.GetString(e[..8]).TrimEnd();
+        var x = Encoding.Latin1.GetString(e.Slice(8, 3)).TrimEnd();
+        if (b.Length > 0 && b[0] == 'å') b = "_" + b[1..];
+        return x.Length == 0 ? b : b + "." + x;
+    }
+
+    public long Extract(RecoverableFile file, Stream output, CancellationToken ct)
+    {
+        if (!_starts.TryGetValue(file.Id, out var s)) throw new RawOperationException("Rec.Error.Unknown", "scan the volume first");
+        long remaining = file.Size, written = 0;
+        if (remaining == 0) return 0;
+        var clusters = s.Deleted
+            ? Enumerable.Range(0, (int)((remaining + _clusterSize - 1) / _clusterSize)).Select(i => (uint)(s.Cluster + i)).ToList()
+            : Chain(s.Cluster);
+        var buf = new byte[_clusterSize];
+        foreach (var c in clusters)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!Valid(c)) break;
+            int len = (int)Math.Min(_clusterSize, remaining);
+            _vol.Read(ClusterOffset(c), buf.AsSpan(0, len));
+            output.Write(buf, 0, len);
+            remaining -= len;
+            written += len;
+            if (remaining == 0) break;
+        }
+        if (remaining > 0) throw new RawOperationException("Rec.Error.Truncated", $"{remaining} bytes beyond the volume");
+        return written;
+    }
+}
+
+public static class VolumeLocator
+{
+    /// <summary>Disk that holds <paramref name="path"/> (longest matching mount point), or null for network/unknown locations.</summary>
+    public static int? DiskOfPath(Models.StorageInventory inv, string path)
+    {
+        var full = Path.GetFullPath(path).TrimEnd('\\') + "\\";
+        int? best = null;
+        int bestLen = -1;
+        foreach (var d in inv.Disks)
+        foreach (var p in d.Partitions)
+        foreach (var mp in p.Volume?.MountPoints ?? Array.Empty<string>())
+        {
+            var m = mp.TrimEnd('\\') + "\\";
+            if (full.StartsWith(m, StringComparison.OrdinalIgnoreCase) && m.Length > bestLen) { best = d.Number; bestLen = m.Length; }
+        }
+        return best;
+    }
+}

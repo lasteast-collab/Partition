@@ -164,4 +164,39 @@ public static partial class LayoutSimulator
         if (b.FixDriveLetter && b.WindowsDirectoryOverride is null) Warn(issues, "Boot.Warn.Registry");
         return d;
     }
+
+    private static DiskInfo ApplyRecover(DiskInfo d, RecoverPartitionOp r, List<ValidationIssue> issues)
+    {
+        if (d.IsDynamic) return Fail(issues, "Op.Error.Dynamic", d, d.Number);
+        ulong ss = d.BytesPerLogicalSector == 0 ? 512 : d.BytesPerLogicalSector;
+        if (r.OffsetBytes % ss != 0 || r.SizeBytes % ss != 0 || r.SizeBytes == 0 || r.OffsetBytes < ss) return Fail(issues, "Op.Error.Granularity", d);
+        ulong end = r.OffsetBytes + r.SizeBytes;
+        if (end > d.SizeBytes) return Fail(issues, "Op.Error.NoSpace", d);
+        bool raw = d.Style is not (PartitionStyle.Gpt or PartitionStyle.Mbr);
+        if (d.Style == PartitionStyle.Gpt && (r.OffsetBytes < Math.Max(d.UsableStartBytes, GptHeadBytes(d)) || end > (d.UsableEndBytes > 0 ? d.UsableEndBytes : d.SizeBytes - GptTailBytes(d))))
+            return Fail(issues, "Rec.Error.GptArea", d);
+        if (Real(d).Any(p => r.OffsetBytes < p.EndBytes && p.OffsetBytes < end)) return Fail(issues, "Rec.Error.Overlap", d);
+        if (!raw && d.Style == PartitionStyle.Mbr)
+        {
+            if (d.Partitions.Any(p => p.Role is PartitionRole.MbrExtended or PartitionRole.MbrLogical)) return Fail(issues, "Rec.Error.Extended", d);
+            if (Real(d).Count() >= 4) return Fail(issues, "Op.Error.MbrPrimaryLimit", d);
+        }
+        if ((raw || d.Style == PartitionStyle.Mbr) && end > Mbr2TiB) return Fail(issues, "Op.Error.Mbr2TB", d);
+        if (d.Style == PartitionStyle.Gpt && d.Partitions.Count >= 128) return Fail(issues, "Op.Error.GptLimit", d);
+        if (raw) Warn(issues, "Rec.Warn.NewMbr");
+        Warn(issues, "Rec.Warn.TableOnly");
+        if (r.RestoreBootSector) Warn(issues, "Rec.Warn.BootSector");
+
+        var style = raw ? PartitionStyle.Mbr : d.Style;
+        var created = new PartitionInfo
+        {
+            DiskNumber = d.Number, PartitionNumber = 0, OffsetBytes = r.OffsetBytes, SizeBytes = r.SizeBytes, Style = style,
+            Role = PartitionRole.BasicData, GptType = style == PartitionStyle.Gpt ? PartitionTypes.GptBasicData : null,
+            MbrType = style == PartitionStyle.Mbr ? (r.FileSystem.Equals("FAT32", StringComparison.OrdinalIgnoreCase) ? (byte)0x0C : (byte)0x07) : null,
+            MbrRecognized = style == PartitionStyle.Mbr, IsPending = true,
+            Alignment = PartitionTypes.GetAlignment(r.OffsetBytes, d.BytesPerPhysicalSector),
+            Volume = new VolumeInfo { VolumeGuidPath = $"pending:{d.Number}:{r.OffsetBytes}", FileSystem = r.FileSystem, CapacityBytes = r.SizeBytes },
+        };
+        return d with { Style = style, Partitions = d.Partitions.Append(created).OrderBy(p => p.OffsetBytes).ToList() };
+    }
 }

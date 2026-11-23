@@ -434,6 +434,15 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
                 await Raw(() => _raw.Clone(src, liveDisk, k.Mode, k.NewIdentifiers, k.Verify, k.OnlyPartitions, RawProgress, CancellationToken.None));
                 break;
             }
+            case Lasteast.Core.Operations.RecoverPartitionOp rp:
+                await Raw(() =>
+                {
+                    using var dev = new PhysicalDiskDevice(liveDisk, writable: true);
+                    Lasteast.Core.Recovery.PartitionTableEditor.AddEntry(dev, rp.OffsetBytes, rp.SizeBytes, rp.FileSystem, rp.RestoreBootSector);
+                    dev.Rescan();
+                });
+                await Task.Delay(2000, CancellationToken.None);
+                break;
             case Lasteast.Core.Operations.PrepareBootOp b:
                 await Task.Run(() => _boot.Prepare(liveDisk, b));
                 break;

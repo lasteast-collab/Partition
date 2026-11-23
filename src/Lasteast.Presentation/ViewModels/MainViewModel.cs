@@ -63,7 +63,8 @@ public sealed class MainViewModel : ObservableObject
     public MainViewModel(IStorageInventoryProvider provider, IPrivilegeService privileges, AppSettings settings,
         JsonSettingsStore store, IThemeService theme, IShellService shell, IAppLog log, string logDirectory,
         string[] args, GuardedExecutionEngine? engine = null, Core.SmartFix.ISystemProbe? systemProbe = null,
-        Core.Cleanup.IFileRemover? remover = null, IReadOnlyList<Core.Cleanup.CleanupTarget>? cleanupTargets = null)
+        Core.Cleanup.IFileRemover? remover = null, IReadOnlyList<Core.Cleanup.CleanupTarget>? cleanupTargets = null,
+        DiskReader? diskReader = null)
     {
         _provider = provider;
         _privileges = privileges;
@@ -96,6 +97,10 @@ public sealed class MainViewModel : ObservableObject
         ClonePage = new ClonePageViewModel(Queue, () => SelectedNav = PendingNav);
         ConversionPage = new ConversionPageViewModel(Queue, () => SelectedNav = PendingNav);
         MigrationPage = new OsMigrationPageViewModel(Queue, () => SelectedNav = PendingNav);
+        FileRecoveryPage = new FileRecoveryPageViewModel(diskReader, shell);
+        NavItem? fileRecoveryNav = null;
+        PartitionRecoveryPage = new PartitionRecoveryPageViewModel(Queue, diskReader, () => SelectedNav = PendingNav,
+            src => { FileRecoveryPage.Show(src); SelectedNav = fileRecoveryNav!; });
         var smartFixNav = new NavItem("Nav.SmartFix", "\uE945", SmartFixPage);
         NavGroups = new[]
         {
@@ -109,7 +114,8 @@ public sealed class MainViewModel : ObservableObject
                 new NavItem("Nav.DiskClone", "\uE8C8", ClonePage),
                 new NavItem("Nav.OsMigration", "\uE895", MigrationPage)),
             new NavGroup("NavGroup.Recover",
-                Planned("Nav.PartitionRecovery", "\uE81C", 7),
+                new NavItem("Nav.PartitionRecovery", "\uE81C", PartitionRecoveryPage),
+                fileRecoveryNav = new NavItem("Nav.FileRecovery", "\uE8E5", FileRecoveryPage),
                 Planned("Nav.BootRecovery", "\uE7E8", 8)),
             new NavGroup("NavGroup.Analyze",
                 new NavItem("Nav.StorageAnalyzer", "\uE9D9", AnalyzerPage),
@@ -178,6 +184,8 @@ public sealed class MainViewModel : ObservableObject
     public ClonePageViewModel ClonePage { get; }
     public ConversionPageViewModel ConversionPage { get; }
     public OsMigrationPageViewModel MigrationPage { get; }
+    public PartitionRecoveryPageViewModel PartitionRecoveryPage { get; }
+    public FileRecoveryPageViewModel FileRecoveryPage { get; }
     public OperationQueue Queue { get; }
     public PendingPageViewModel PendingPage { get; }
     public NavItem PendingNav { get; } = null!;
@@ -261,6 +269,8 @@ public sealed class MainViewModel : ObservableObject
         ClonePage.Refresh(state);
         ConversionPage.Refresh(state);
         MigrationPage.Refresh(state);
+        PartitionRecoveryPage.Refresh(state);
+        FileRecoveryPage.Refresh(state);
         SettingsPage.Refresh(state);
         foreach (var g in NavGroups)
         foreach (var i in g.Items)

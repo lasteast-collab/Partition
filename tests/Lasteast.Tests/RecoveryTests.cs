@@ -1,0 +1,191 @@
+using System.Security.Cryptography;
+using Lasteast.Core.Models;
+using Lasteast.Core.Operations;
+using Lasteast.Core.RawDisk;
+using Lasteast.Core.Recovery;
+
+namespace Lasteast.Tests;
+
+/// <summary>Phase 7 against real NTFS/FAT32/exFAT images made by mkntfs/ntfs-3g, mkfs.fat/mtools and mkfs.exfat (tools/make-fixtures.sh).</summary>
+public static class RecoveryTests
+{
+    private const long MiB = 1024 * 1024;
+
+    private static Dictionary<string, string> Expected() =>
+        File.ReadAllLines(Path.Combine(DiskImage.Fixtures, "checksums-deleted.txt"))
+            .Select(l => l.Split("  ", 2)).ToDictionary(p => p[1], p => p[0].ToUpperInvariant());
+
+    private static string Hash(IRecoveryReader r, RecoverableFile f)
+    {
+        using var ms = new MemoryStream();
+        r.Extract(f, ms, CancellationToken.None);
+        return Convert.ToHexString(SHA256.HashData(ms.ToArray()));
+    }
+
+    private static DiskImage Volume(string gz, long sizeMb)
+    {
+        var img = new DiskImage(sizeMb);
+        img.Put(0, DiskImage.Fixture(gz));
+        return img;
+    }
+
+    [Test]
+    public static void Ntfs_deleted_files_are_found_with_paths_and_recovered_byte_exact()
+    {
+        var exp = Expected();
+        using var img = Volume("ntfs-deleted32.img.gz", 32);
+        using var dev = img.Open();
+        var r = RecoveryReaders.Open(dev)!;
+        Assert.Equal("NTFS", r.FileSystem);
+        Assert.Equal("LE-DEL", r.Label);
+        var deleted = r.Scan(includeExisting: false, null, CancellationToken.None);
+        Assert.Equal(4, deleted.Count);
+        Assert.True(deleted.All(f => f.IsDeleted && f.Recoverability == Recoverability.Good), string.Join(",", deleted.Select(f => f.Recoverability)));
+        Assert.Equal(@"Photos\2024", deleted.Single(f => f.Name == "nested-deleted.dat").Folder);
+        foreach (var f in deleted) Assert.Equal(exp[f.Name], Hash(r, f), f.Name);
+        Assert.True(deleted.Single(f => f.Name == "small-deleted.txt").Size == 36); // resident data
+
+        var all = r.Scan(includeExisting: true, null, CancellationToken.None);
+        var keep = all.Single(f => f.Name == "keep.txt");
+        Assert.True(!keep.IsDeleted && keep.Recoverability == Recoverability.Intact);
+        Assert.Equal(exp["keep.txt"], Hash(r, keep));
+    }
+
+    [Test]
+    public static void Fat32_deleted_files_recover_long_names_and_content()
+    {
+        var exp = Expected();
+        using var img = Volume("fat32-deleted40.img.gz", 40);
+        using var dev = img.Open();
+        var r = RecoveryReaders.Open(dev)!;
+        Assert.Equal("LE-FATDEL", r.Label);
+        var deleted = r.Scan(false, null, CancellationToken.None);
+        var lfn = deleted.Single(f => f.Name == "Long file name deleted.bin");
+        Assert.Equal(exp["deleted.bin"], Hash(r, lfn));
+        var nested = deleted.Single(f => f.Folder == "Docs");
+        Assert.Equal("_ESTED.DAT", nested.Name); // 8.3 entry without long name: first letter is lost by design of FAT
+        Assert.Equal(exp["nested-deleted.dat"], Hash(r, nested));
+        Assert.True(deleted.All(f => f.Recoverability == Recoverability.Good));
+    }
+
+    [Test]
+    public static void Recovery_writer_refuses_source_disk_and_writes_tree_with_unique_names()
+    {
+        using var img = Volume("ntfs-deleted32.img.gz", 32);
+        using var dev = img.Open();
+        var r = RecoveryReaders.Open(dev)!;
+        var files = r.Scan(false, null, CancellationToken.None);
+        var dest = Path.Combine(Path.GetTempPath(), "lasteast-rec-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Assert.Equal("Rec.Error.SameDisk", Assert.Throws<RawOperationException>(() => RecoveryWriter.Recover(r, files, dest, 3, 3, null, CancellationToken.None)).Key);
+            var rep = RecoveryWriter.Recover(r, files, dest, 3, 1, null, CancellationToken.None);
+            Assert.Equal(4, rep.Recovered);
+            Assert.True(File.Exists(Path.Combine(dest, "Photos", "2024", "nested-deleted.dat")));
+            var again = RecoveryWriter.Recover(r, files.Take(1), dest, 3, null, null, CancellationToken.None);
+            Assert.Equal(1, again.Recovered);
+            Assert.True(Directory.GetFiles(dest).Any(p => p.Contains(" (1)")), "second copy gets a unique name");
+        }
+        finally { try { Directory.Delete(dest, true); } catch { } }
+    }
+
+    [Test]
+    public static void Quick_scan_finds_partitions_after_the_table_was_wiped_and_restores_them()
+    {
+        using var img = DiskImage.MbrWithVolumes(96);
+        img.Put(0, new byte[512]); // partition table destroyed
+        DiskInfo d;
+        IReadOnlyList<FoundPartition> found;
+        using (var dev = img.Open())
+        {
+            d = DiskImage.Describe(dev);
+            Assert.Equal(PartitionStyle.Raw, d.Style);
+            found = LostPartitionScanner.Scan(dev, Array.Empty<(ulong, ulong)>(), LostScanMode.Quick, null, CancellationToken.None);
+        }
+        Assert.Equal(2, found.Count);
+        var ntfs = found.Single(f => f.FileSystem == "NTFS");
+        var fat = found.Single(f => f.FileSystem == "FAT32");
+        Assert.True(ntfs.OffsetBytes == (ulong)MiB && ntfs.SizeBytes == 24UL * (ulong)MiB && ntfs.Confidence == FoundConfidence.High);
+        Assert.True(fat.OffsetBytes == 32UL * (ulong)MiB && fat.SizeBytes == 40UL * (ulong)MiB && fat.Label == "LE-FAT32" && fat.Confidence == FoundConfidence.High);
+
+        // simulate + restore both through the operation model, then compare with the engine's verifier
+        var ops = found.Select(f => (DiskOperation)new RecoverPartitionOp(7, f.OffsetBytes, f.SizeBytes, f.FileSystem)).ToList();
+        var sim = LayoutSimulator.Simulate(d, ops);
+        Assert.True(sim.IsValid, string.Join(",", sim.AllIssues.Select(i => i.Key)));
+        Assert.True(sim.AllIssues.Any(i => i.Key == "Rec.Warn.NewMbr"));
+        using (var dev = img.Open())
+            foreach (var f in found) PartitionTableEditor.AddEntry(dev, f.OffsetBytes, f.SizeBytes, f.FileSystem);
+        DiskInfo after;
+        using (var dev = img.Open()) after = DiskImage.Describe(dev);
+        Assert.Equal(PartitionStyle.Mbr, after.Style);
+        foreach (var op in ops) Assert.Equal(null, GuardedExecutionEngine.Verify(op, sim.After, after));
+
+        // the restored NTFS volume is readable again
+        using var dev2 = img.Open();
+        var reader = RecoveryReaders.Open(new OffsetDevice(dev2, MiB, 24 * MiB))!;
+        Assert.True(reader.Scan(true, null, CancellationToken.None).Any(f => f.Name == "big.bin" && !f.IsDeleted));
+    }
+
+    [Test]
+    public static void Ntfs_with_destroyed_boot_sector_is_found_through_its_backup_and_repaired()
+    {
+        using var img = DiskImage.GptWithVolumes(96);
+        DiskInfo d;
+        using (var dev = img.Open()) d = DiskImage.Describe(dev);
+        // delete the NTFS entry from the table and destroy its boot sector
+        using (var dev = img.Open())
+        {
+            var head = new byte[34 * 512];
+            dev.Read(0, head);
+            var gpt = Lasteast.Core.PartitionTables.PartitionTableCodec.ReadGpt(head, 512);
+            var g2 = gpt with { Entries = gpt.Entries.Where(e => e.FirstLba != 2048).ToList() };
+            var (h, t, tl) = Lasteast.Core.PartitionTables.PartitionTableCodec.BuildGpt(g2, (ulong)(dev.Length / 512), 512, head.AsSpan(0, 512));
+            dev.Write((long)tl * 512, t);
+            dev.Write(0, h);
+        }
+        img.Put(MiB, new byte[512]);
+
+        using (var dev = img.Open())
+        {
+            d = DiskImage.Describe(dev);
+            var existing = d.Partitions.Select(p => (p.OffsetBytes, p.SizeBytes)).ToList();
+            var found = LostPartitionScanner.Scan(dev, existing, LostScanMode.Quick, null, CancellationToken.None);
+            var ntfs = found.Single();
+            Assert.True(ntfs.FromBackupBootSector && ntfs.OffsetBytes == (ulong)MiB && ntfs.SizeBytes == 24UL * (ulong)MiB);
+            var op = new RecoverPartitionOp(7, ntfs.OffsetBytes, ntfs.SizeBytes, "NTFS", RestoreBootSector: true);
+            Assert.True(LayoutSimulator.Simulate(d, new[] { op }).IsValid);
+            PartitionTableEditor.AddEntry(dev, ntfs.OffsetBytes, ntfs.SizeBytes, "NTFS", restoreBootSector: true);
+        }
+        using var dev3 = img.Open();
+        Assert.Equal(2, DiskImage.Describe(dev3).Partitions.Count);
+        var reader = RecoveryReaders.Open(new OffsetDevice(dev3, MiB, 24 * MiB))!;
+        Assert.Equal("LE-NTFS", reader.Label);
+    }
+
+    [Test]
+    public static void Deep_scan_finds_unaligned_exfat_that_quick_scan_misses()
+    {
+        using var img = DiskImage.MbrWithVolumes(96);
+        long at = 74 * MiB + 63 * 512;
+        img.Put(at, DiskImage.Fixture("exfat16.img.gz"));
+        using var dev = img.Open();
+        var d = DiskImage.Describe(dev);
+        var existing = d.Partitions.Select(p => (p.OffsetBytes, p.SizeBytes)).ToList();
+        Assert.True(LostPartitionScanner.Scan(dev, existing, LostScanMode.Quick, null, CancellationToken.None).All(f => f.FileSystem != "exFAT"));
+        var deep = LostPartitionScanner.Scan(dev, existing, LostScanMode.Deep, null, CancellationToken.None);
+        var ex = deep.Single(f => f.FileSystem == "exFAT");
+        Assert.Equal((ulong)at, ex.OffsetBytes);
+        Assert.Equal(16UL * (ulong)MiB, ex.SizeBytes);
+    }
+
+    [Test]
+    public static void Recover_partition_simulation_rejects_overlap_and_misalignment()
+    {
+        using var img = DiskImage.MbrWithVolumes(96);
+        using var dev = img.Open();
+        var d = DiskImage.Describe(dev);
+        Assert.True(LayoutSimulator.Simulate(d, new[] { new RecoverPartitionOp(7, 10 * (ulong)MiB, 8 * (ulong)MiB, "NTFS") }).AllIssues.Any(i => i.Key == "Rec.Error.Overlap"));
+        Assert.True(LayoutSimulator.Simulate(d, new[] { new RecoverPartitionOp(7, 80 * (ulong)MiB + 100, 8 * (ulong)MiB, "NTFS") }).AllIssues.Any(i => i.Key == "Op.Error.Granularity"));
+        Assert.True(LayoutSimulator.Simulate(d, new[] { new RecoverPartitionOp(7, 80 * (ulong)MiB, 8 * (ulong)MiB, "NTFS") }).IsValid);
+    }
+}

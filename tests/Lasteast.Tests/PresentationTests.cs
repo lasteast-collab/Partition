@@ -95,7 +95,7 @@ public static class PresentationTests
     {
         var vm = Create(out _);
         var planned = vm.NavGroups.SelectMany(g => g.Items).Where(i => i.IsPlanned).ToList();
-        Assert.True(planned.Count >= 8);
+        Assert.True(planned.Count >= 5);
         Assert.True(planned.All(p => p.Page is PlannedModuleViewModel));
         Assert.True(planned.All(p => !p.PhaseBadge.StartsWith('[')));
         Assert.Equal(6, vm.TopTargets.Count);

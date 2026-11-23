@@ -27,6 +27,8 @@
         <DataTemplate DataType="{x:Type vm:ClonePageViewModel}"><views:CloneView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:ConversionPageViewModel}"><views:ConversionView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:OsMigrationPageViewModel}"><views:OsMigrationView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:PartitionRecoveryPageViewModel}"><views:PartitionRecoveryView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:FileRecoveryPageViewModel}"><views:FileRecoveryView /></DataTemplate>
 
         <!-- Sidebar item -->
         <DataTemplate x:Key="NavItemTemplate" DataType="{x:Type vm:NavItem}">

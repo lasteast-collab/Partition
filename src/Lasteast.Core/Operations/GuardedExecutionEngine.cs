@@ -197,7 +197,7 @@ public sealed class GuardedExecutionEngine
             catch (Exception ex) { return FailStep(i, op, sw.Elapsed, "Exec.Error.Inventory", ex.Message); }
 
             var after = live.Disks.FirstOrDefault(d => d.Number == op.DiskNumber);
-            bool rewritesTable = op is ConvertStyleOp or CloneDiskOp;
+            bool rewritesTable = op is ConvertStyleOp or CloneDiskOp or RecoverPartitionOp;
             if (after is null || (rewritesTable
                     ? DiskFingerprint.Hardware(after) != DiskFingerprint.Hardware(disk)
                     : DiskFingerprint.Identity(after) != DiskFingerprint.Identity(disk)))
@@ -293,6 +293,13 @@ public sealed class GuardedExecutionEngine
                 if (p.SizeBytes != orig.SizeBytes) return $"moved partition size {p.SizeBytes} != {orig.SizeBytes}";
                 break;
             }
+            case RecoverPartitionOp rp:
+            {
+                var p = At(actual, rp.OffsetBytes);
+                if (p is null) return $"no partition at {rp.OffsetBytes}";
+                if (!Near(p.SizeBytes, rp.SizeBytes)) return $"size {p.SizeBytes} != {rp.SizeBytes}";
+                break;
+            }
             case CloneDiskOp:
                 if (actual.Style != expected.Style) return $"partition style {actual.Style} != {expected.Style}";
                 if (Real(actual).Count() != Real(expected).Count()) return $"{Real(actual).Count()} partitions, expected {Real(expected).Count()}";
@@ -309,6 +316,7 @@ public sealed class GuardedExecutionEngine
             SetLabelOp l => l.OffsetBytes,
             SetDriveLetterOp s => s.OffsetBytes,
             MovePartitionOp m => m.NewOffsetBytes,
+            RecoverPartitionOp rp => rp.OffsetBytes,
             _ => ulong.MaxValue,
         };
         // (After a clone every destination partition is checked here: none is "touched", all must match.)

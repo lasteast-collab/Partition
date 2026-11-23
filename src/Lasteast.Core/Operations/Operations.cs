@@ -2,7 +2,7 @@ using Lasteast.Core.Models;
 
 namespace Lasteast.Core.Operations;
 
-public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot }
+public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition }
 
 /// <summary>
 /// A planned change to one disk. Operations are pure data: they describe intent and are only
@@ -100,6 +100,17 @@ public sealed record PrepareBootOp(int DiskNumber, bool FixDriveLetter = true, s
 {
     public override OperationKind Kind => OperationKind.PrepareBoot;
     public override int EstimatedSeconds => 20;
+}
+
+/// <summary>
+/// Restores a lost partition found by the scanner by adding a partition-table entry for it. The data area is not
+/// written (except, on request, copying an NTFS backup boot sector over a damaged primary one).
+/// </summary>
+public sealed record RecoverPartitionOp(int DiskNumber, ulong OffsetBytes, ulong SizeBytes, string FileSystem, bool RestoreBootSector = false)
+    : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.RecoverPartition;
+    public override int EstimatedSeconds => 3;
 }
 
 public enum IssueLevel { Error, Warning }
