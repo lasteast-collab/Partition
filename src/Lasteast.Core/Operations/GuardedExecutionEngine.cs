@@ -135,7 +135,7 @@ public sealed class GuardedExecutionEngine
             if (DiskFingerprint.Compute(planned) != DiskFingerprint.Compute(now)) return Finish(false, "Exec.Error.LayoutChanged", null, n);
             if (!now.IsVirtual && !policy.AllowPhysicalDisks) return Finish(false, "Exec.Error.PhysicalPolicy", null, n);
             var sim = LayoutSimulator.Simulate(now, operations.Where(o => o.DiskNumber == n).ToList(), LettersElsewhere(live, n, operations), Lookup(live));
-            if (!sim.IsValid) return Finish(false, "Exec.Error.Invalid", null, n);
+            if (!sim.IsValid) return Finish(false, "Exec.Error.Invalid", string.Join(", ", sim.AllIssues.Where(x => x.IsError).Select(x => x.Key)), n);
         }
 
         // Clone sources are only read, but they must still be exactly what the user reviewed and not changed by this plan.
@@ -174,7 +174,7 @@ public sealed class GuardedExecutionEngine
             if (!expected.IsValid)
             {
                 outcomes[i] = outcomes[i] with { State = StepState.Failed, ErrorKey = "Exec.Error.Invalid" };
-                return Finish(false, "Exec.Error.Invalid", null, op.DiskNumber);
+                return Finish(false, "Exec.Error.Invalid", string.Join(", ", expected.AllIssues.Where(x => x.IsError).Select(x => x.Key)), op.DiskNumber);
             }
 
             progress?.Report(new ExecutionProgress(i, operations.Count, op, StepState.Running));

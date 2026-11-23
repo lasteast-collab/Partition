@@ -72,7 +72,9 @@ public static class Batch1IntegrationTests
         File.WriteAllBytes($"{a}:\\payload.bin", data);
         var sp = (await src.ReadAsync()).Partitions.Single(p => p.Volume?.Label == "LE-CP");
         var dd = await dst.ReadAsync();
-        ulong at = Math.Max(dd.UsableStartBytes, 1024 * 1024) / (1024 * 1024) * (1024 * 1024) + 1024 * 1024;
+        // diskpart's "convert gpt" may add a Microsoft Reserved partition: use the first free region
+        var free = Lasteast.Core.Layout.DiskMapLayout.BuildSegments(dd, out _).First(s => s.Kind == Lasteast.Core.Layout.SegmentKind.Unallocated && s.SizeBytes > sp.SizeBytes + 2 * 1024 * 1024);
+        ulong at = (free.OffsetBytes + 1024 * 1024 - 1) / (1024 * 1024) * (1024 * 1024);
         await Run(new CopyPartitionOp(dst.Number, at, src.Number, sp.OffsetBytes, sp.SizeBytes));
         var copy = (await dst.ReadAsync()).Partitions.Single(p => p.OffsetBytes == at);
         Assert.Equal("NTFS", copy.Volume?.FileSystem);
