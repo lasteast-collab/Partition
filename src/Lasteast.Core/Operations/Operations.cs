@@ -2,7 +2,7 @@ using Lasteast.Core.Models;
 
 namespace Lasteast.Core.Operations;
 
-public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition, RestoreTable, RepairBoot }
+public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition, RestoreTable, RepairBoot, Initialize }
 
 /// <summary>
 /// A planned change to one disk. Operations are pure data: they describe intent and are only
@@ -130,6 +130,13 @@ public sealed record RepairBootOp(int DiskNumber) : DiskOperation(DiskNumber)
 {
     public override OperationKind Kind => OperationKind.RepairBoot;
     public override int EstimatedSeconds => 15;
+}
+
+/// <summary>Gives a new (RAW) disk an empty GPT or MBR partition table.</summary>
+public sealed record InitializeDiskOp(int DiskNumber, PartitionStyle Style) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.Initialize;
+    public override int EstimatedSeconds => 3;
 }
 
 public enum IssueLevel { Error, Warning }

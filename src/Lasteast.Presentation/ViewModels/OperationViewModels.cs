@@ -37,6 +37,7 @@ public static class OperationText
             PrepareBootOp b => Loc.Instance.Format("OpText.PrepareBoot", disk),
             RestoreTableOp rt => Loc.Instance.Format("OpText.RestoreTable", disk, rt.Created.LocalDateTime.ToString("g")),
             RepairBootOp => Loc.Instance.Format("OpText.RepairBoot", disk),
+            InitializeDiskOp i => Loc.Instance.Format("OpText.Initialize", disk, i.Style == PartitionStyle.Gpt ? "GPT" : "MBR"),
             RecoverPartitionOp rp => Loc.Instance.Format("OpText.Recover", rp.FileSystem, Size(rp.SizeBytes), Size(rp.OffsetBytes), disk),
             SetDriveLetterOp s => s.Letter is { } nl
                 ? Loc.Instance.Format("OpText.Letter", Target(s.OffsetBytes), $"{nl}:", disk)
@@ -50,7 +51,7 @@ public sealed record IssueViewModel(string Text, bool IsError);
 
 public sealed record ActionItem(string Title, string Glyph, bool IsDestructive, RelayCommand Command);
 
-public enum EditorMode { Create, Resize, Format, Label, Letter, Delete, Move, ConvertToGpt, ConvertToMbr }
+public enum EditorMode { Create, Resize, Format, Label, Letter, Delete, Move, ConvertToGpt, ConvertToMbr, InitGpt, InitMbr }
 
 /// <summary>
 /// Inline editor for one operation on the selected segment. Every change re-validates against the
@@ -205,6 +206,8 @@ public sealed class OperationEditorViewModel : ObservableObject
                     ? new MovePartitionOp(disk, p!.OffsetBytes, mib * LayoutSimulator.MiB, p.SizeBytes) : null;
             case EditorMode.ConvertToGpt: return new ConvertStyleOp(disk, PartitionStyle.Gpt);
             case EditorMode.ConvertToMbr: return new ConvertStyleOp(disk, PartitionStyle.Mbr);
+            case EditorMode.InitGpt: return new InitializeDiskOp(disk, PartitionStyle.Gpt);
+            case EditorMode.InitMbr: return new InitializeDiskOp(disk, PartitionStyle.Mbr);
         }
         return null;
     }

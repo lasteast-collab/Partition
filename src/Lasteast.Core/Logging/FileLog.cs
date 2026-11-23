@@ -14,8 +14,7 @@ public sealed class FileLog : IAppLog
         Directory.CreateDirectory(directory);
     }
 
-    public static string DefaultDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasteast", "Partition", "logs");
+    public static string DefaultDirectory => Lasteast.Core.AppPaths.Logs;
 
     public string CurrentFile => Path.Combine(_directory, $"lasteast-{DateTime.Now:yyyy-MM-dd}.log");
 

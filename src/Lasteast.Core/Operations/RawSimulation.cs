@@ -229,4 +229,15 @@ public static partial class LayoutSimulator
         Warn(issues, "Boot.Warn.RepairRunning");
         return d;
     }
+
+    private static DiskInfo ApplyInitialize(DiskInfo d, InitializeDiskOp op, List<ValidationIssue> issues)
+    {
+        if (d.Style is PartitionStyle.Gpt or PartitionStyle.Mbr || d.Partitions.Count > 0) return Fail(issues, "Init.Error.NotRaw", d);
+        if (op.Style is not (PartitionStyle.Gpt or PartitionStyle.Mbr)) return Fail(issues, "Op.Error.DiskStyle", d, d.Number);
+        if (op.Style == PartitionStyle.Mbr && d.SizeBytes > Mbr2TiB) Warn(issues, "Conv.Warn.SpaceBeyond2TB");
+        Warn(issues, "Init.Warn.Raw");
+        return op.Style == PartitionStyle.Gpt
+            ? d with { Style = PartitionStyle.Gpt, UsableStartBytes = GptHeadBytes(d), UsableEndBytes = d.SizeBytes - GptTailBytes(d) }
+            : d with { Style = PartitionStyle.Mbr, UsableStartBytes = 0, UsableEndBytes = Math.Min(d.SizeBytes, Mbr2TiB) };
+    }
 }

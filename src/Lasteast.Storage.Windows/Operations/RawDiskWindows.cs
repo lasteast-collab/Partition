@@ -264,7 +264,7 @@ public sealed class RawDiskExecutor
     {
         _inventory = inventory;
         _log = log ?? NullLog.Instance;
-        _journalDir = journalDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasteast", "Partition", "journal");
+        _journalDir = journalDir ?? Lasteast.Core.AppPaths.Journal;
     }
 
     public static string JournalPathFor(string dir, int disk) => Path.Combine(dir, $"move-disk{disk}.json");
@@ -473,8 +473,7 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
                 await Task.Delay(2000, CancellationToken.None);
                 break;
             case Lasteast.Core.Operations.RepairBootOp:
-                await Task.Run(() => new WindowsBootTools(_log).Repair(Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasteast", "Partition", "bcd")));
+                await Task.Run(() => new WindowsBootTools(_log).Repair(Lasteast.Core.AppPaths.Bcd));
                 break;
             case Lasteast.Core.Operations.PrepareBootOp b:
                 await Task.Run(() => _boot.Prepare(liveDisk, b));

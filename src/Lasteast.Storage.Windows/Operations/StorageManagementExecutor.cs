@@ -49,6 +49,13 @@ public sealed class StorageManagementExecutor : IOperationExecutor
                 case ResizePartitionOp r: Resize(svc, disk, r); break;
                 case SetLabelOp l: SetLabel(VolumePathOf(disk, l.OffsetBytes), l.Label); break;
                 case SetDriveLetterOp s: SetLetter(disk, s); break;
+                case InitializeDiskOp i:
+                {
+                    dynamic d = QueryFirst(svc, $"SELECT * FROM MSFT_Disk WHERE Number = {disk.Number}")
+                                ?? throw new OperationFailedException("Exec.Error.DiskMissing", null, disk.Number);
+                    Invoke(d, "Initialize", new Dictionary<string, object?> { ["PartitionStyle"] = i.Style == PartitionStyle.Gpt ? 2 : 1 });
+                    break;
+                }
                 default: throw new OperationFailedException("Exec.Error.Step", "unsupported operation " + op.GetType().Name);
             }
         }

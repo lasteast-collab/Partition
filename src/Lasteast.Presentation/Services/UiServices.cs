@@ -18,6 +18,9 @@ public interface IShellService
     /// <summary>Yes/No confirmation. Must default to "No".</summary>
     bool Confirm(string title, string message);
     string? PickFolder();
+    /// <summary>Save dialog; <paramref name="filter"/> uses the Windows "Name|*.ext" syntax.</summary>
+    string? PickSaveFile(string defaultName, string filter) => null;
+    string? PickOpenFile(string filter) => null;
 }
 
 public sealed class NullThemeService : IThemeService
@@ -34,4 +37,7 @@ public sealed class NullShellService : IShellService
     public void CopyToClipboard(string text) { }
     public bool Confirm(string title, string message) { Confirmations.Add(message); return ConfirmAnswer; }
     public string? PickFolder() => null;
+    public string? SaveFileAnswer { get; set; }
+    public string? PickSaveFile(string defaultName, string filter) => SaveFileAnswer;
+    public string? PickOpenFile(string filter) => SaveFileAnswer;
 }

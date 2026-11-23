@@ -69,6 +69,28 @@
 
             <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                 <StackPanel>
+                    <TextBlock Text="{ui:Tr Settings.License}" Style="{StaticResource Text.Section}" />
+                    <TextBlock Text="{Binding LicenseText}" TextWrapping="Wrap" />
+                    <TextBlock Text="{ui:Tr Settings.LicenseNote}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    <Button Style="{StaticResource Button.Outline}" Command="{Binding LoadLicenseCommand}" Content="{ui:Tr Settings.LoadLicense}" Padding="10,4" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                    <TextBlock Text="{Binding PortableText}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="{ui:Tr Settings.Assistant}" Style="{StaticResource Text.Section}" />
+                    <CheckBox IsChecked="{Binding AssistantAiEnabled}" Content="{ui:Tr Settings.AiEnabled}" />
+                    <TextBlock Text="{ui:Tr Settings.AiNote}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,4,0,6" />
+                    <TextBlock Text="{ui:Tr Settings.AiEndpoint}" Style="{StaticResource Text.Muted}" />
+                    <TextBox Text="{Binding AssistantAiEndpoint, UpdateSourceTrigger=LostFocus}" Style="{StaticResource Input}" IsEnabled="{Binding AssistantAiEnabled}" AutomationProperties.Name="{ui:Tr Settings.AiEndpoint}" />
+                    <TextBlock Text="{ui:Tr Settings.AiModel}" Style="{StaticResource Text.Muted}" Margin="0,6,0,0" />
+                    <TextBox Text="{Binding AssistantAiModel, UpdateSourceTrigger=LostFocus}" Style="{StaticResource Input}" IsEnabled="{Binding AssistantAiEnabled}" AutomationProperties.Name="{ui:Tr Settings.AiModel}" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
                     <TextBlock Text="{ui:Tr Settings.Monitoring}" Style="{StaticResource Text.Section}" />
                     <CheckBox IsChecked="{Binding MonitorEnabled}" Content="{ui:Tr Settings.MonitorEnabled}" />
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">

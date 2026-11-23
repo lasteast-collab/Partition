@@ -1,0 +1,35 @@
+<UserControl x:Class="Lasteast.App.Views.ToolsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Lasteast.App.Infrastructure"
+             xmlns:vm="clr-namespace:Lasteast.Presentation.ViewModels;assembly=Lasteast.Presentation">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24,20" MaxWidth="1000" HorizontalAlignment="Left">
+            <TextBlock Text="{Binding Title}" Style="{StaticResource Text.PageTitle}" Margin="0,0,0,12" />
+            <ItemsControl ItemsSource="{Binding Links}" Focusable="False">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:ToolLink}">
+                        <Button Style="{StaticResource Button.Base}" Command="{Binding Command}" Width="300" Margin="0,0,10,10" Padding="0" HorizontalContentAlignment="Stretch">
+                            <Border Style="{StaticResource Card}" Height="96">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Text.Icon}" Text="{Binding Glyph}" FontSize="22" Margin="0,2,12,0" VerticalAlignment="Top" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Description}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Border Style="{StaticResource Card}" Margin="0,8,0,0">
+                <StackPanel>
+                    <TextBlock Text="{ui:Tr Tools.CliTitle}" Style="{StaticResource Text.Section}" />
+                    <TextBox Text="{Binding CliHelp, Mode=OneWay}" Style="{StaticResource Text.Selectable}" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

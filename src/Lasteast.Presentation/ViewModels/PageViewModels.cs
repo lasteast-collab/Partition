@@ -78,6 +78,12 @@ public sealed class DashboardViewModel : PageViewModel
             if (style == PartitionStyle.Mbr) A(EditorMode.ConvertToGpt, "\uE8AB");
             else if (style == PartitionStyle.Gpt) A(EditorMode.ConvertToMbr, "\uE8AB");
         }
+        if (style is not (PartitionStyle.Gpt or PartitionStyle.Mbr) && _selected.Disk.Disk.Partitions.Count == 0)
+        {
+            A(EditorMode.InitGpt, "\uE8F4");
+            A(EditorMode.InitMbr, "\uE8F4");
+            return;
+        }
         if (_selected.IsUnallocated)
         {
             A(EditorMode.Create, "\uE710");
@@ -426,11 +432,41 @@ public sealed class SettingsPageViewModel : PageViewModel
         set { if (Settings.LowSpacePercent == value) return; Settings.LowSpacePercent = value; Save(); OnPropertyChanged(); }
     }
 
+    // ---- license, portable mode, assistant
+    public RelayCommand? LoadLicenseCommand { get; set; }
+    public string LicenseText { get; private set; } = "";
+    public void SetLicense(Core.Licensing.LicenseStatus status, Core.Licensing.License? l)
+    {
+        var edition = Core.Licensing.Licenses.Effective(status, l);
+        LicenseText = Loc.Instance.Format("License.Status", L("License.Edition." + edition), L("License.State." + status))
+                      + (l is not null ? $" · {l.Licensee}" + (l.Expires is { } e ? $" · {Loc.Instance.Format("License.Expires", e.LocalDateTime.ToString("d"))}" : "") : "");
+        OnPropertyChanged(nameof(LicenseText));
+        OnPropertyChanged(nameof(LoadLicenseCommand));
+    }
+    public string PortableText => Core.AppPaths.IsPortable ? Loc.Instance.Format("Settings.PortableOn", Core.AppPaths.Root) : Loc.Instance.Format("Settings.PortableOff", Core.AppPaths.Root);
+
+    public bool AssistantAiEnabled
+    {
+        get => Settings.AssistantAiEnabled;
+        set { if (Settings.AssistantAiEnabled == value) return; Settings.AssistantAiEnabled = value; Save(); OnPropertyChanged(); }
+    }
+    public string AssistantAiEndpoint
+    {
+        get => Settings.AssistantAiEndpoint;
+        set { if (Settings.AssistantAiEndpoint == value) return; Settings.AssistantAiEndpoint = value; Save(); OnPropertyChanged(); }
+    }
+    public string AssistantAiModel
+    {
+        get => Settings.AssistantAiModel;
+        set { if (Settings.AssistantAiModel == value) return; Settings.AssistantAiModel = value; Save(); OnPropertyChanged(); }
+    }
+    public bool AiKeyPresent => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LASTEAST_LLM_KEY"));
+
     /// <summary>Raised when monitoring settings change, so the monitor restarts with them.</summary>
     public event Action? MonitorChanged;
 
     public string BackupFolder => Loc.Instance.Format("Settings.BackupFolder",
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasteast", "Partition", "backups"));
+        Core.AppPaths.Backups);
 
     public bool AutoRefresh
     {

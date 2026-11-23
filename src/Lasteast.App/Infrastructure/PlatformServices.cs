@@ -104,6 +104,18 @@ public sealed class ShellService : IShellService
         var dlg = new Microsoft.Win32.OpenFolderDialog { Multiselect = false };
         return dlg.ShowDialog(Application.Current.MainWindow) == true ? dlg.FolderName : null;
     }
+
+    public string? PickSaveFile(string defaultName, string filter)
+    {
+        var d = new Microsoft.Win32.SaveFileDialog { FileName = defaultName, Filter = filter, OverwritePrompt = true };
+        return d.ShowDialog() == true ? d.FileName : null;
+    }
+
+    public string? PickOpenFile(string filter)
+    {
+        var d = new Microsoft.Win32.OpenFileDialog { Filter = filter, CheckFileExists = true };
+        return d.ShowDialog() == true ? d.FileName : null;
+    }
 }
 
 /// <summary>

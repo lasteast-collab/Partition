@@ -20,6 +20,9 @@ using Lasteast.Storage.Windows.Operations;
 //   lasteast bcd                                             read-only
 //   lasteast account-help [--lang xx]
 //   lasteast rescue                                          interactive menu (Lasteast Rescue Boot)
+//   lasteast op <disk> <kind> key=value... [--apply --confirm APPLY] [--allow-physical]   dry-run by default
+//   lasteast report --html|--csv|--json <file> [--show-serials]
+//   lasteast vdisk create <file> <size> [--fixed] | attach <file> | detach <file>
 // Exit codes: 0 ok, 1 error, 2 usage, 3 unsupported OS.
 
 return await Cli.Main(args);
@@ -53,6 +56,9 @@ internal static class Cli
                 "bcd" => Bcd(),
                 "account-help" => AccountHelp(),
                 "rescue" => await Rescue(),
+                "op" => await Op(args),
+                "report" => await Report(args),
+                "vdisk" => VDisk(args),
                 _ => Unknown(args[0]),
             };
         }
@@ -73,7 +79,12 @@ internal static class Cli
         Console.WriteLine("  bcd                                                 show boot entries (read-only)");
         Console.WriteLine("  account-help [--lang en|he|ar|fr|es|de|ru]           supported ways to regain access to Windows");
         Console.WriteLine("  rescue                                              interactive rescue menu");
-        Console.WriteLine("Changes to partitions are made in the Lasteast Partition app, through its preview and confirmation.");
+        Console.WriteLine("  op <disk> <kind> key=value... [--apply --confirm APPLY] [--allow-physical]");
+        Console.WriteLine("        kinds: " + string.Join(", ", Lasteast.Core.Operations.OperationParser.Kinds) + "  (dry-run unless --apply)");
+        Console.WriteLine("        e.g. op 2 create offset=1MiB size=20GB fs=NTFS label=Data letter=G");
+        Console.WriteLine("  report --html|--csv|--json <file> [--show-serials]   technician report");
+        Console.WriteLine("  vdisk create <file.vhdx> <size> [--fixed] | attach <file> | detach <file>");
+        Console.WriteLine("'op' applies changes only with --apply --confirm APPLY, through the same checks, backup and verification as the app.");
     }
 
     private static int Unknown(string cmd)
@@ -233,6 +244,83 @@ internal static class Cli
             Console.WriteLine(Loc.Instance[$"Acc.{k}.Steps"]);
         }
         return 0;
+    }
+
+    // ------------------------------------------------------------------ operations (dry-run by default)
+
+    private static async Task<int> Op(string[] args)
+    {
+        if (args.Length < 3 || !int.TryParse(args[1], out var n)) throw new ArgumentException("usage: op <disk> <kind> key=value ...");
+        var op = Lasteast.Core.Operations.OperationParser.Parse(n, args[2], Lasteast.Core.Operations.OperationParser.Pairs(args.Skip(3)));
+        var inv = await Inv();
+        var disk = inv.Disks.FirstOrDefault(d => d.Number == n) ?? throw new ArgumentException($"disk {n} not found");
+        var lookup = new Func<int, DiskInfo?>(k => inv.Disks.FirstOrDefault(d => d.Number == k));
+        var sim = Lasteast.Core.Operations.LayoutSimulator.Simulate(disk, new[] { op }, null, lookup);
+        Console.WriteLine($"Operation: {op}");
+        foreach (var i in sim.AllIssues) Console.WriteLine($"  {(i.IsError ? "ERROR" : "warn ")} {Loc.Instance.Format(i.Key, i.Args)}");
+        Console.WriteLine("Result:");
+        foreach (var s in DiskMapLayout.BuildSegments(sim.After, out _))
+            Console.WriteLine(s.Partition is { } p
+                ? $"   @{p.OffsetBytes,-14} {ByteSize.Format(p.SizeBytes, C),12}  {p.Volume?.FileSystem ?? "-",-6} {p.Volume?.DriveLetter}{(p.IsPending ? "  (new)" : "")}"
+                : $"   @{s.OffsetBytes,-14} {ByteSize.Format(s.SizeBytes, C),12}  (unallocated)");
+        if (!sim.IsValid) return 1;
+        if (!args.Contains("--apply")) { Console.WriteLine("Dry run: nothing was changed. Add --apply --confirm APPLY to perform it."); return 0; }
+
+        var log = new Lasteast.Core.Logging.FileLog(Lasteast.Core.AppPaths.Logs);
+        var priv = new WindowsPrivilegeService();
+        var provider = new WindowsStorageInventoryProvider(log, priv);
+        var engine = new Lasteast.Core.Operations.GuardedExecutionEngine(provider, new WindowsOperationExecutor(provider, log), new PartitionTableBackupService(), priv,
+            new Lasteast.Core.Operations.JsonlOperationHistory(Lasteast.Core.AppPaths.History), log);
+        var report = await engine.ExecuteAsync(new[] { op }, inv, new Lasteast.Core.Operations.ExecutionPolicy(args.Contains("--allow-physical")), Opt(args, "--confirm") ?? "",
+            new Progress<Lasteast.Core.Operations.ExecutionProgress>(e => Console.WriteLine($"  {e.State}: {e.Operation}")));
+        foreach (var b in report.Backups) Console.WriteLine($"  partition table backup: {b.Folder}");
+        Console.WriteLine(report.Succeeded ? "Done." : $"Not done: {Loc.Instance.Format(report.FailureKey ?? "", report.FailureArgs)} {report.FailureDetail}" + (report.NothingWritten ? " (nothing was written)" : ""));
+        return report.Succeeded ? 0 : 1;
+    }
+
+    private static async Task<int> Report(string[] args)
+    {
+        string? fmt = args.Contains("--html") ? "--html" : args.Contains("--csv") ? "--csv" : args.Contains("--json") ? "--json" : null;
+        var file = fmt is null ? null : Opt(args, fmt);
+        if (file is null) throw new ArgumentException("usage: report --html|--csv|--json <file>");
+        var inv = await Inv();
+        var health = new Dictionary<int, Lasteast.Core.Health.DiskHealthReport>();
+        var hp = new Lasteast.Storage.Windows.Health.WindowsHealthProvider();
+        foreach (var d in inv.Disks) health[d.Number] = await hp.ReadAsync(d);
+        var info = new Lasteast.Storage.Windows.Info.WindowsSystemInfo();
+        var input = new Lasteast.Core.Reports.ReportInput
+        {
+            Inventory = inv, Health = health, BitLocker = await info.BitLockerAsync(), Spaces = await info.StorageSpacesAsync(), MaskSerials = !args.Contains("--show-serials"),
+        };
+        File.WriteAllText(file, fmt switch
+        {
+            "--html" => Lasteast.Core.Reports.TechnicianReport.Html(input),
+            "--csv" => Lasteast.Core.Reports.TechnicianReport.Csv(input),
+            _ => Lasteast.Core.Reports.TechnicianReport.Json(input),
+        });
+        Console.WriteLine("Report written: " + Path.GetFullPath(file));
+        return 0;
+    }
+
+    private static int VDisk(string[] args)
+    {
+        if (args.Length < 3) throw new ArgumentException("usage: vdisk create <file> <size> [--fixed] | attach <file> | detach <file>");
+        switch (args[1])
+        {
+            case "create":
+                if (args.Length < 4) throw new ArgumentException("size required");
+                Lasteast.Storage.Windows.Info.VirtualDiskService.Create(Path.GetFullPath(args[2]), Lasteast.Core.Operations.OperationParser.ParseSize(args[3]), dynamic: !args.Contains("--fixed"));
+                Console.WriteLine("Created " + Path.GetFullPath(args[2]));
+                return 0;
+            case "attach":
+                Console.WriteLine("Attached as " + Lasteast.Storage.Windows.Info.VirtualDiskService.Attach(Path.GetFullPath(args[2])));
+                return 0;
+            case "detach":
+                Lasteast.Storage.Windows.Info.VirtualDiskService.Detach(Path.GetFullPath(args[2]));
+                Console.WriteLine("Detached.");
+                return 0;
+        }
+        return Unknown("vdisk " + args[1]);
     }
 
     // ------------------------------------------------------------------ rescue menu

@@ -27,8 +27,7 @@ public sealed class PartitionTableBackupService : IPartitionTableBackup
 
     public PartitionTableBackupService(string? root = null) => _root = root ?? DefaultRoot;
 
-    public static string DefaultRoot => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasteast", "Partition", "backups");
+    public static string DefaultRoot => Lasteast.Core.AppPaths.Backups;
 
     public Task<BackupRecord> BackupAsync(DiskInfo disk, StorageInventory inventory, CancellationToken cancellationToken)
         => Task.Run(() => Backup(disk, inventory), cancellationToken);

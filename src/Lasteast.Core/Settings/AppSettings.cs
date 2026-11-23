@@ -30,6 +30,14 @@ public sealed class AppSettings
     public int LowSpacePercent { get; set; } = 10;
     /// <summary>Alert above this temperature (°C); 0 = defaults (SSD 70, HDD 55).</summary>
     public int TemperatureAlertCelsius { get; set; }
+
+    /// <summary>Optional AI assistant (off by default). The API key is read from the LASTEAST_LLM_KEY environment variable, never stored here.</summary>
+    public bool AssistantAiEnabled { get; set; }
+    public string AssistantAiEndpoint { get; set; } = "https://api.openai.com/v1/chat/completions";
+    public string AssistantAiModel { get; set; } = "gpt-4o-mini";
+
+    /// <summary>Technician details printed on reports (Technician edition).</summary>
+    public string? TechnicianName { get; set; }
 }
 
 /// <summary>
@@ -49,8 +57,7 @@ public sealed class JsonSettingsStore
 
     public JsonSettingsStore(string path) => _path = path;
 
-    public static string DefaultPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasteast", "Partition", "settings.json");
+    public static string DefaultPath => Lasteast.Core.AppPaths.Settings;
 
     public AppSettings Load()
     {

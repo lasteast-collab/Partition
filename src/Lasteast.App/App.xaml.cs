@@ -57,7 +57,10 @@ public partial class App : Application
             demo ? null : new Lasteast.Storage.Windows.Operations.WindowsBootTools(_log),
             demo ? null : new Lasteast.Storage.Windows.Operations.WinPeRescueMediaBuilder(),
             Lasteast.Storage.Windows.Operations.PartitionTableBackupService.DefaultRoot,
-            demo ? null : new Lasteast.Storage.Windows.Health.WindowsHealthProvider(_log));
+            demo ? null : new Lasteast.Storage.Windows.Health.WindowsHealthProvider(_log),
+            demo ? null : new Lasteast.Storage.Windows.Info.WindowsVirtualDiskManager(),
+            demo ? null : new Lasteast.Storage.Windows.Info.WindowsSystemInfo(_log),
+            new Lasteast.Core.Licensing.LicenseStore());
         var window = new MainWindow(vm, theme);
         vm.RequestShutdown += (_, _) => Shutdown();
         MainWindow = window;

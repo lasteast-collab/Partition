@@ -65,7 +65,8 @@ public sealed class MainViewModel : ObservableObject
         string[] args, GuardedExecutionEngine? engine = null, Core.SmartFix.ISystemProbe? systemProbe = null,
         Core.Cleanup.IFileRemover? remover = null, IReadOnlyList<Core.Cleanup.CleanupTarget>? cleanupTargets = null,
         DiskReader? diskReader = null, Core.Boot.IBootTools? bootTools = null, Core.Boot.IRescueMediaBuilder? rescueBuilder = null,
-        string? tableBackupRoot = null, Core.Health.IDiskHealthProvider? healthProvider = null)
+        string? tableBackupRoot = null, Core.Health.IDiskHealthProvider? healthProvider = null,
+        Core.Info.IVirtualDiskManager? virtualDisks = null, Core.Info.ISystemInfoProvider? systemInfo = null, Core.Licensing.LicenseStore? licenses = null)
     {
         _ui = SynchronizationContext.Current;
         _provider = provider;
@@ -106,6 +107,22 @@ public sealed class MainViewModel : ObservableObject
         HealthPage = new DiskHealthPageViewModel(healthProvider);
         SettingsPage.MonitorChanged += StartMonitor;
         PerformancePage = new PerformanceLabPageViewModel(diskReader);
+        _licenses = licenses ?? new Core.Licensing.LicenseStore(Path.Combine(Path.GetTempPath(), "lasteast-no-license.json"));
+        License = _licenses.Load();
+        void Go(string key) { var n = NavGroups!.SelectMany(g => g.Items).FirstOrDefault(i => i.TitleKey == key); if (n is not null) SelectedNav = n; }
+        VirtualDisksPage = new VirtualDisksPageViewModel(virtualDisks, shell, Queue, RefreshAsync, () => SelectedNav = PendingNav);
+        FileOpsPage = new FileOperationsPageViewModel(systemInfo ?? new Core.Info.NullSystemInfoProvider());
+        TechnicianPage = new TechnicianPageViewModel(systemInfo ?? new Core.Info.NullSystemInfoProvider(), shell, () => HealthPage.Reports, () => Edition);
+        AssistantPage = new AssistantPageViewModel(Queue, () => SelectedNav = PendingNav, Go, CreateLlmClient);
+        ToolsPage = new ToolsPageViewModel(Go);
+        SettingsPage.LoadLicenseCommand = new RelayCommand(() =>
+        {
+            if (shell.PickOpenFile("License|*.json;*.lic") is not { } f) return;
+            License = _licenses.Install(f);
+            SettingsPage.SetLicense(License.Status, License.License);
+            Rebuild();
+        });
+        SettingsPage.SetLicense(License.Status, License.License);
         _healthProvider = healthProvider;
         DismissAlertsCommand = new RelayCommand(() => { _dismissed.UnionWith(_alertIds); Alerts.Clear(); OnPropertyChanged(nameof(HasAlerts)); });
         NavItem? backupNav = null;
@@ -114,9 +131,10 @@ public sealed class MainViewModel : ObservableObject
         PartitionRecoveryPage = new PartitionRecoveryPageViewModel(Queue, diskReader, () => SelectedNav = PendingNav,
             src => { FileRecoveryPage.Show(src); SelectedNav = fileRecoveryNav!; });
         var smartFixNav = new NavItem("Nav.SmartFix", "\uE945", SmartFixPage);
+        var assistantNav = new NavItem("Nav.Assistant", "\uE99A", AssistantPage);
         NavGroups = new[]
         {
-            new NavGroup("NavGroup.Home", overview, smartFixNav),
+            new NavGroup("NavGroup.Home", overview, smartFixNav, assistantNav),
             new NavGroup("NavGroup.Disks",
                 new NavItem("Nav.AllDisks", "\uEDA2", DisksPage),
                 new NavItem("Nav.AllPartitions", "\uE8FD", PartitionsPage),
@@ -137,10 +155,10 @@ public sealed class MainViewModel : ObservableObject
                 new NavItem("Nav.DiskHealth", "\uE95E", HealthPage),
                 new NavItem("Nav.PerformanceLab", "\uEC4A", PerformancePage)),
             new NavGroup("NavGroup.Advanced",
-                Planned("Nav.VirtualDisks", "\uE8F1", 10),
-                Planned("Nav.FileOperations", "\uE8B7", 10),
-                Planned("Nav.Technician", "\uE90F", 10),
-                Planned("Nav.Tools", "\uEC7A", 9)),
+                new NavItem("Nav.VirtualDisks", "\uE8F1", VirtualDisksPage),
+                new NavItem("Nav.FileOperations", "\uE8B7", FileOpsPage),
+                new NavItem("Nav.Technician", "\uE90F", TechnicianPage),
+                new NavItem("Nav.Tools", "\uEC7A", ToolsPage)),
         };
         SettingsNav = new NavItem("Nav.Settings", "\uE713", SettingsPage);
         _selectedNav = overview;
@@ -205,6 +223,24 @@ public sealed class MainViewModel : ObservableObject
     public BackupPageViewModel BackupPage { get; }
     public DiskHealthPageViewModel HealthPage { get; }
     public PerformanceLabPageViewModel PerformancePage { get; }
+    public VirtualDisksPageViewModel VirtualDisksPage { get; }
+    public FileOperationsPageViewModel FileOpsPage { get; }
+    public TechnicianPageViewModel TechnicianPage { get; }
+    public AssistantPageViewModel AssistantPage { get; }
+    public ToolsPageViewModel ToolsPage { get; }
+
+    private readonly Core.Licensing.LicenseStore _licenses;
+    public (Core.Licensing.LicenseStatus Status, Core.Licensing.License? License) License { get; private set; }
+    public Core.Licensing.Edition Edition => Core.Licensing.Licenses.Effective(License.Status, License.License);
+
+    /// <summary>The optional AI planner client (Settings › Assistant); null unless enabled.</summary>
+    private Core.Assistant.ILlmClient? CreateLlmClient()
+    {
+        if (!AppSettings.AssistantAiEnabled || !Uri.TryCreate(AppSettings.AssistantAiEndpoint, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return null;
+        return new Core.Assistant.OpenAiCompatibleClient(_http, uri, AppSettings.AssistantAiModel, Environment.GetEnvironmentVariable("LASTEAST_LLM_KEY"));
+    }
+
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(60) };
 
     // ---- background monitor (free space, health, temperature)
     private readonly SynchronizationContext? _ui;
@@ -341,6 +377,11 @@ public sealed class MainViewModel : ObservableObject
         BackupPage.Refresh(state);
         HealthPage.Refresh(state);
         PerformancePage.Refresh(state);
+        VirtualDisksPage.Refresh(state);
+        FileOpsPage.Refresh(state);
+        TechnicianPage.Refresh(state);
+        AssistantPage.Refresh(state);
+        ToolsPage.Refresh(state);
         SettingsPage.Refresh(state);
         foreach (var g in NavGroups)
         foreach (var i in g.Items)

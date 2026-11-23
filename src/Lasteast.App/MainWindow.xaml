@@ -34,6 +34,11 @@
         <DataTemplate DataType="{x:Type vm:BackupPageViewModel}"><views:BackupView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:DiskHealthPageViewModel}"><views:DiskHealthView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:PerformanceLabPageViewModel}"><views:PerformanceLabView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:AssistantPageViewModel}"><views:AssistantView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:VirtualDisksPageViewModel}"><views:VirtualDisksView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:FileOperationsPageViewModel}"><views:FileOperationsView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:TechnicianPageViewModel}"><views:TechnicianView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ToolsPageViewModel}"><views:ToolsView /></DataTemplate>
 
         <!-- Sidebar item -->
         <DataTemplate x:Key="NavItemTemplate" DataType="{x:Type vm:NavItem}">

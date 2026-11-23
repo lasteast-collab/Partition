@@ -197,7 +197,7 @@ public sealed class GuardedExecutionEngine
             catch (Exception ex) { return FailStep(i, op, sw.Elapsed, "Exec.Error.Inventory", ex.Message); }
 
             var after = live.Disks.FirstOrDefault(d => d.Number == op.DiskNumber);
-            bool rewritesTable = op is ConvertStyleOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp;
+            bool rewritesTable = op is ConvertStyleOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp;
             if (after is null || (rewritesTable
                     ? DiskFingerprint.Hardware(after) != DiskFingerprint.Hardware(disk)
                     : DiskFingerprint.Identity(after) != DiskFingerprint.Identity(disk)))
@@ -282,6 +282,9 @@ public sealed class GuardedExecutionEngine
                 if (p?.Volume?.DriveLetter != want) return $"drive letter {p?.Volume?.DriveLetter} != {want}";
                 break;
             }
+            case InitializeDiskOp init:
+                if (actual.Style != init.Style) return $"partition style {actual.Style} != {init.Style}";
+                return null;
             case ConvertStyleOp cs:
                 if (actual.Style != cs.Target) return $"partition style {actual.Style} != {cs.Target}";
                 break;
@@ -350,8 +353,7 @@ public sealed class JsonlOperationHistory : IOperationHistory
 
     public JsonlOperationHistory(string path) => _path = path;
 
-    public static string DefaultPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasteast", "Partition", "history.jsonl");
+    public static string DefaultPath => AppPaths.History;
 
     public void Append(ExecutionReport report)
     {
