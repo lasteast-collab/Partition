@@ -51,9 +51,12 @@ public static class BootToolsIntegrationTests
             var head = new byte[34 * 512];
             dev.Read(0, head);
             var onDisk = Lasteast.Core.PartitionTables.PartitionTableCodec.ReadGpt(head, 512).Entries.Count;
-            await Task.Delay(15000);
-            var later = (await vd.ReadAsync()).Partitions.Count;
-            throw new AssertionException($"{r.FailureKey} {r.FailureDetail} | entries on disk={onDisk} backup={b.Partitions.Count} windows-now={now.Partitions.Count} windows-15s-later={later}");
+            // apply again directly and watch the disk
+            var trace = new List<string>();
+            int Entries() { var h2 = new byte[34 * 512]; dev.Read(0, h2); return Lasteast.Core.PartitionTables.PartitionTableCodec.ReadGpt(h2, 512).Entries.Count; }
+            DriveLayoutWriter.Apply(now, b);
+            for (int i = 0; i < 12; i++) { trace.Add($"{i * 500}ms:{Entries()}/{(await vd.ReadAsync()).Partitions.Count}"); await Task.Delay(500); }
+            throw new AssertionException($"{r.FailureKey} {r.FailureDetail} | entries on disk={onDisk} backup={b.Partitions.Count} windows-now={now.Partitions.Count} | reapply: {string.Join(" ", trace)}");
         }
 
         for (int i = 0; i < 20; i++)
