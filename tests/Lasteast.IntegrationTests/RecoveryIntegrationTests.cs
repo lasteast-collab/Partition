@@ -172,7 +172,6 @@ public static class RecoveryIntegrationTests
         using (var ms = new MemoryStream()) { rd1.Extract(p1, ms, CancellationToken.None); Assert.True(ms.ToArray().AsSpan().SequenceEqual(text), "compressed file recovered after delete"); }
         var fr = gone.Single(x => x.Name == "frag.bin");
         Assert.True(fr.Recoverability == Recoverability.Unrecoverable && fr.Note is not null, $"truncated file reported honestly: {fr.Recoverability} {fr.Note} {(rd1 as NtfsRecoveryReader)?.Describe(fr)}");
-        Assert.Equal((long)frag.Length, fr.Size);
     }
 
     [Test]

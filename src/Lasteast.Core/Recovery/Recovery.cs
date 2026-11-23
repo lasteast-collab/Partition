@@ -535,7 +535,7 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
                 if ((aflags & 0x4000) != 0) problem = "encrypted";
                 // Windows truncates very fragmented files (attribute lists) before deleting them: the run list is
                 // emptied, so nothing records where the data was. Say so instead of "recovering" an empty file.
-                else if ((flags & 0x01) == 0 && data is { Resident: null, Size: 0 } && data.Runs!.Count == 0 && fileNameSize > 0)
+                else if ((flags & 0x01) == 0 && data is { Resident: null, Size: 0 } && data.Runs!.Count == 0 && (set.Count > 1 || Attributes(buf).Any(x => x.Type == 0x20) || fileNameSize > 0))
                     problem = "location released by Windows when deleted (try search by content)";
                 else if ((aflags & 0x0001) != 0 && data is { Resident: null, CompressionUnit: 0 }) problem = "compressed (unknown unit)";
                 else if (partial) problem = "part of the location is lost";
