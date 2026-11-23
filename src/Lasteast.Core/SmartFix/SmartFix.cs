@@ -20,6 +20,8 @@ public enum FixKind
     Guidance,
     /// <summary>The fix belongs to a module scheduled for <see cref="SmartFinding.PlannedPhase"/>.</summary>
     Planned,
+    /// <summary>Runs Windows' volume optimisation for <see cref="SmartFinding.OptimizeLetter"/> after a confirmation.</summary>
+    Optimize,
     /// <summary>Opens another page (<see cref="SmartFinding.NavigateTo"/>, a nav key) where the user acts.</summary>
     Navigate,
 }
@@ -48,6 +50,8 @@ public sealed record SmartFinding
     public int? PlannedPhase { get; init; }
     public string? NavigateTo { get; init; }
     public int? DiskNumber { get; init; }
+    public char? OptimizeLetter { get; init; }
+    public Optimization.OptimizeAction OptimizeAction { get; init; }
 }
 
 /// <summary>Facts about the running Windows installation gathered by a platform probe (all optional).</summary>
@@ -60,6 +64,16 @@ public sealed record SystemSnapshot
     public ulong? HibernationFileBytes { get; init; }
     public ulong? PageFileBytes { get; init; }
     public bool? RecoveryEnvironmentConfigured { get; init; }
+    /// <summary>Health of each disk as reported by the drive (null: not read).</summary>
+    public IReadOnlyList<Health.DiskHealthReport>? Health { get; init; }
+    public IReadOnlyList<Info.BitLockerVolume>? BitLocker { get; init; }
+    /// <summary>Volumes whose file system marked itself as needing a check ("dirty bit").</summary>
+    public IReadOnlyList<char> DirtyVolumes { get; init; } = Array.Empty<char>();
+    /// <summary>Fragmentation (total %) of HDD volumes that were analysed.</summary>
+    public IReadOnlyDictionary<char, int>? Fragmentation { get; init; }
+    public ulong? DownloadsBytes { get; init; }
+    /// <summary>Downloads not modified for 90 days.</summary>
+    public ulong? OldDownloadsBytes { get; init; }
 }
 
 public interface ISystemProbe
@@ -172,7 +186,7 @@ public static class CDriveExpansion
 /// returns findings ordered Critical → Healthy. Fixes that change disks are expressed as operations
 /// for the pending queue — Smart Fix itself never executes anything.
 /// </summary>
-public static class SmartFixAnalyzer
+public static partial class SmartFixAnalyzer
 {
     public const ulong GiB = 1024UL * 1024 * 1024;
     public const double LowSpaceFraction = 0.10;
@@ -426,13 +440,9 @@ public static class SmartFixAnalyzer
                 Fix = FixKind.Guidance, Risk = FixRisk.Low,
             });
 
-        // ---------------- health is read on its own page (reported values only, never guessed)
-        list.Add(new SmartFinding
-        {
-            Id = "health", Severity = SmartSeverity.Optional, Category = "Health",
-            TitleKey = "SF.Health.Title", ExplanationKey = "SF.Health.Explain", RecommendationKey = "SF.Health.Fix",
-            Fix = FixKind.Navigate, NavigateTo = "Nav.DiskHealth", Risk = FixRisk.None,
-        });
+        // ---------------- health: only what the drives report, never guessed
+        AddHealth(list, inv, sys);
+        AddExtended(list, inv, sys);
 
         // ---------------- healthy summary
         if (!anyMisaligned && inv.Disks.Count > 0) list.Add(Healthy("align-ok", "Layout", "SF.AlignOk.Title"));

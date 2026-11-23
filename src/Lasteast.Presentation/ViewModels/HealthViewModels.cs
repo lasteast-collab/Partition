@@ -4,6 +4,7 @@ using Lasteast.Core.Localization;
 using Lasteast.Core.Models;
 using Lasteast.Core.Performance;
 using Lasteast.Presentation.Mvvm;
+using Lasteast.Presentation.Services;
 using static Lasteast.Presentation.ViewModels.Text;
 
 namespace Lasteast.Presentation.ViewModels;
@@ -95,6 +96,43 @@ public sealed class DiskHealthPageViewModel : PageViewModel
     }
 }
 
+/// <summary>One volume in "Optimize drives": the planner's choice (defragment HDD, TRIM SSD, nothing otherwise).</summary>
+public sealed class OptimizeRow : ObservableObject
+{
+    private string? _status;
+    public OptimizeRow(char letter, string title, Core.Optimization.OptimizeAction action, Core.Optimization.IVolumeOptimizer? optimizer, IShellService? shell)
+    {
+        Letter = letter;
+        Title = title;
+        Action = action;
+        ActionText = L("Opt.Action." + action);
+        AnalyzeCommand = new AsyncRelayCommand(async () =>
+        {
+            Status = L("BootFix.Checking");
+            var r = optimizer is null ? null : await optimizer.AnalyzeAsync(letter);
+            Status = r is null ? L("Common.NotAvailable") : Loc.Instance.Format("Opt.Analysis", r.TotalPercent, r.FilePercent, L(r.DefragRecommended ? "Common.Yes" : "Common.No"));
+        }, ex => Status = ErrorText(ex));
+        OptimizeCommand = new AsyncRelayCommand(async () =>
+        {
+            var key = action == Core.Optimization.OptimizeAction.Retrim ? "Opt.ConfirmTrim" : "Opt.ConfirmDefrag";
+            if (shell is not null && !shell.Confirm(L("Opt.Title"), Loc.Instance.Format(key, $"{letter}:"))) return;
+            Status = Loc.Instance.Format("Opt.Running", $"{letter}:");
+            await optimizer!.OptimizeAsync(letter, action);
+            Status = Loc.Instance.Format("Opt.Done", $"{letter}:");
+        }, ex => Status = ErrorText(ex));
+    }
+    public char Letter { get; }
+    public string Title { get; }
+    public Core.Optimization.OptimizeAction Action { get; }
+    public string ActionText { get; }
+    public bool CanAnalyze => Action == Core.Optimization.OptimizeAction.Defragment;
+    public bool CanOptimize => Action != Core.Optimization.OptimizeAction.None;
+    public AsyncRelayCommand AnalyzeCommand { get; }
+    public AsyncRelayCommand OptimizeCommand { get; }
+    public string? Status { get => _status; private set { Set(ref _status, value); OnPropertyChanged(nameof(HasStatus)); } }
+    public bool HasStatus => !string.IsNullOrEmpty(_status);
+}
+
 public sealed record VolumeChoice(char Letter, string Title)
 {
     public override string ToString() => Title;
@@ -115,9 +153,15 @@ public sealed class PerformanceLabPageViewModel : PageViewModel
     private bool _busy;
     private CancellationTokenSource? _cts;
 
-    public PerformanceLabPageViewModel(DiskReader? reader)
+    private readonly Core.Optimization.IVolumeOptimizer? _optimizer;
+    private readonly IShellService? _shell;
+    public ObservableCollection<OptimizeRow> Optimize { get; } = new();
+
+    public PerformanceLabPageViewModel(DiskReader? reader, Core.Optimization.IVolumeOptimizer? optimizer = null, IShellService? shell = null)
     {
         _reader = reader;
+        _optimizer = optimizer;
+        _shell = shell;
         BenchmarkCommand = new AsyncRelayCommand(RunBenchmarkAsync, ex => { BenchText = ex.Message; Busy = false; });
         SurfaceCommand = new AsyncRelayCommand(RunSurfaceAsync, ex => { SurfaceText = ex.Message; Busy = false; });
         CancelCommand = new RelayCommand(() => _cts?.Cancel());
@@ -194,12 +238,17 @@ public sealed class PerformanceLabPageViewModel : PageViewModel
         var (v, d) = (_volume?.Letter, _disk?.Number);
         Volumes.Clear();
         Disks.Clear();
+        Optimize.Clear();
         foreach (var disk in _inv?.Disks ?? Array.Empty<DiskInfo>())
         {
             Disks.Add(new DiskChoice(disk.Number, $"{L("Common.Disk")} {disk.Number} — {disk.Model} · {Size(disk.SizeBytes)}"));
             foreach (var p in disk.Partitions)
                 if (p.Volume?.DriveLetter is { } l)
+                {
                     Volumes.Add(new VolumeChoice(l, $"{l}: {p.Volume.Label} · {p.Volume.FileSystem} · {Size(p.Volume.FreeBytes)} {L("Stat.Free")}"));
+                    if (_optimizer is not null && _inv is { IsSampleData: false })
+                        Optimize.Add(new OptimizeRow(l, $"{l}: {p.Volume.Label} · {L("Media." + disk.Media)} · {disk.Model}", Core.Optimization.OptimizePlanner.For(disk, p), _optimizer, _shell));
+                }
         }
         _volume = Volumes.FirstOrDefault(x => x.Letter == v);
         _disk = Disks.FirstOrDefault(x => x.Number == d);

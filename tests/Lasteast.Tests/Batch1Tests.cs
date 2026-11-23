@@ -178,3 +178,47 @@ public static class Batch1Tests
         Assert.True(rk.IsValid && rk.After.Partitions[0].Volume!.ClusterSizeBytes == 65536, string.Join(",", rk.AllIssues.Select(i => i.Key)));
     }
 }
+
+public static class Batch2Tests
+{
+    [Test]
+    public static void Optimizer_never_defragments_ssds_and_leaves_unknown_media_alone()
+    {
+        var inv = Fixtures.Real();
+        var d0 = Fixtures.Disk(inv, 0);
+        var c = Fixtures.Letter(inv, 'C');
+        var ssd = d0 with { Media = MediaKind.Ssd, Bus = BusKind.Sata, TrimEnabled = true };
+        var hdd = d0 with { Media = MediaKind.Hdd, Bus = BusKind.Sata };
+        var unknown = d0 with { Media = MediaKind.Unknown, Bus = BusKind.Usb };
+        Assert.Equal(Lasteast.Core.Optimization.OptimizeAction.Retrim, Lasteast.Core.Optimization.OptimizePlanner.For(ssd, c));
+        Assert.Equal(Lasteast.Core.Optimization.OptimizeAction.Defragment, Lasteast.Core.Optimization.OptimizePlanner.For(hdd, c));
+        Assert.Equal(Lasteast.Core.Optimization.OptimizeAction.None, Lasteast.Core.Optimization.OptimizePlanner.For(unknown, c));
+        Assert.Equal(Lasteast.Core.Optimization.OptimizeAction.Retrim, Lasteast.Core.Optimization.OptimizePlanner.For(unknown with { Bus = BusKind.Nvme }, c));
+    }
+
+    [Test]
+    public static void Smart_fix_reports_health_temperature_wear_dirty_and_fragmentation_from_real_data_only()
+    {
+        var inv = Fixtures.Real();
+        var none = Lasteast.Core.SmartFix.SmartFixAnalyzer.Analyze(inv, new Lasteast.Core.SmartFix.SystemSnapshot());
+        Assert.True(none.Any(f => f.Id == "health" && f.Severity == Lasteast.Core.SmartFix.SmartSeverity.Optional), "no data: stated, not guessed");
+        var hot = new Lasteast.Core.Health.DiskHealthReport
+        {
+            DiskNumber = 0, Verdict = Lasteast.Core.Health.HealthVerdict.Warning, Findings = Array.Empty<Lasteast.Core.Health.HealthFinding>(),
+            Windows = new Lasteast.Core.Health.WindowsReliability { Temperature = 82, WearPercent = 93 },
+        };
+        var letterD = Fixtures.Disk(inv, 1).Partitions[0].Volume!.DriveLetter!.Value;
+        var hdd = inv with { Disks = inv.Disks.Select(d => d.Number == 1 ? d with { Media = MediaKind.Hdd } : d).ToList() };
+        var f = Lasteast.Core.SmartFix.SmartFixAnalyzer.Analyze(hdd, new Lasteast.Core.SmartFix.SystemSnapshot
+        {
+            Health = new[] { hot }, DirtyVolumes = new[] { letterD }, Fragmentation = new Dictionary<char, int> { [letterD] = 30 },
+        });
+        Assert.True(f.Any(x => x.Id == "health-0" && x.Severity == Lasteast.Core.SmartFix.SmartSeverity.High));
+        Assert.True(f.Any(x => x.Id == "temp-0"));
+        Assert.True(f.Any(x => x.Id == "wear-0" && x.Severity == Lasteast.Core.SmartFix.SmartSeverity.High));
+        var dirty = f.Single(x => x.Id == $"dirty-{letterD}");
+        Assert.True(dirty.Fix == Lasteast.Core.SmartFix.FixKind.QueueOperations && dirty.Operations.Single() is RepairFileSystemOp);
+        var defrag = f.Single(x => x.Id == $"defrag-{letterD}");
+        Assert.True(defrag.Fix == Lasteast.Core.SmartFix.FixKind.Optimize && defrag.OptimizeAction == Lasteast.Core.Optimization.OptimizeAction.Defragment);
+    }
+}

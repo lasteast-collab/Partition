@@ -67,7 +67,7 @@ public sealed class MainViewModel : ObservableObject
         DiskReader? diskReader = null, Core.Boot.IBootTools? bootTools = null, Core.Boot.IRescueMediaBuilder? rescueBuilder = null,
         string? tableBackupRoot = null, Core.Health.IDiskHealthProvider? healthProvider = null,
         Core.Info.IVirtualDiskManager? virtualDisks = null, Core.Info.ISystemInfoProvider? systemInfo = null, Core.Licensing.LicenseStore? licenses = null,
-        Core.Abstractions.IFileSystemTools? fsTools = null)
+        Core.Abstractions.IFileSystemTools? fsTools = null, Core.Optimization.IVolumeOptimizer? optimizer = null)
     {
         _ui = SynchronizationContext.Current;
         _provider = provider;
@@ -93,7 +93,8 @@ public sealed class MainViewModel : ObservableObject
         }, () => !_privileges.IsElevated && !IsSampleData);
         SmartFixPage = new SmartFixPageViewModel(Queue, systemProbe ?? new Core.SmartFix.NullSystemProbe(), RefreshAsync,
             () => SelectedNav = PendingNav, RestartElevatedCommand,
-            key => { var n = NavGroups!.SelectMany(g => g.Items).FirstOrDefault(i => i.TitleKey == key); if (n is not null) SelectedNav = n; });
+            key => { var n = NavGroups!.SelectMany(g => g.Items).FirstOrDefault(i => i.TitleKey == key); if (n is not null) SelectedNav = n; },
+            optimizer, shell);
         var fileRemover = remover ?? new Core.Cleanup.PermanentFileRemover();
         AnalyzerPage = new StorageAnalyzerViewModel(shell, fileRemover);
         CleanupPage = new CleanupPageViewModel(new Core.Cleanup.CleanupService(fileRemover), cleanupTargets ?? Array.Empty<Core.Cleanup.CleanupTarget>(), privileges);
@@ -107,7 +108,7 @@ public sealed class MainViewModel : ObservableObject
         BackupPage = new BackupPageViewModel(shell);
         HealthPage = new DiskHealthPageViewModel(healthProvider);
         SettingsPage.MonitorChanged += StartMonitor;
-        PerformancePage = new PerformanceLabPageViewModel(diskReader);
+        PerformancePage = new PerformanceLabPageViewModel(diskReader, optimizer, shell);
         _licenses = licenses ?? new Core.Licensing.LicenseStore(Path.Combine(Path.GetTempPath(), "lasteast-no-license.json"));
         License = _licenses.Load();
         void Go(string key) { var n = NavGroups!.SelectMany(g => g.Items).FirstOrDefault(i => i.TitleKey == key); if (n is not null) SelectedNav = n; }

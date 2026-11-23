@@ -51,7 +51,9 @@ public partial class App : Application
             new JsonlOperationHistory(JsonlOperationHistory.DefaultPath), _log);
 
         var vm = new MainViewModel(provider, privileges, settings, store, theme, new ShellService(), _log,
-            FileLog.DefaultDirectory, e.Args, engine, demo ? null : new WindowsSystemProbe(_log),
+            FileLog.DefaultDirectory, e.Args, engine, demo ? null : new WindowsSystemProbe(_log, provider,
+                new Lasteast.Storage.Windows.Health.WindowsHealthProvider(_log), new Lasteast.Storage.Windows.Info.WindowsSystemInfo(_log),
+                new Lasteast.Storage.Windows.Operations.WindowsVolumeOptimizer()),
             new RecycleBinRemover(), demo ? Array.Empty<Lasteast.Core.Cleanup.CleanupTarget>() : Lasteast.Core.Cleanup.CleanupService.WindowsTargets(),
             demo ? null : d => new Lasteast.Storage.Windows.Operations.PhysicalDiskDevice(d, writable: false),
             demo ? null : new Lasteast.Storage.Windows.Operations.WindowsBootTools(_log),
@@ -61,7 +63,8 @@ public partial class App : Application
             demo ? null : new Lasteast.Storage.Windows.Info.WindowsVirtualDiskManager(),
             demo ? null : new Lasteast.Storage.Windows.Info.WindowsSystemInfo(_log),
             new Lasteast.Core.Licensing.LicenseStore(),
-            demo ? null : new Lasteast.Storage.Windows.Operations.WindowsFileSystemTools());
+            demo ? null : new Lasteast.Storage.Windows.Operations.WindowsFileSystemTools(),
+            demo ? null : new Lasteast.Storage.Windows.Operations.WindowsVolumeOptimizer());
         var window = new MainWindow(vm, theme);
         vm.RequestShutdown += (_, _) => Shutdown();
         MainWindow = window;

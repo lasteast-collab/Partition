@@ -9,6 +9,32 @@
             <TextBlock Text="{ui:Tr Perf.Subtitle}" Style="{StaticResource Text.Muted}" FontSize="13" TextWrapping="Wrap" Margin="0,2,0,12" />
             <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                 <StackPanel>
+                    <TextBlock Text="{ui:Tr Opt.Section}" Style="{StaticResource Text.Section}" />
+                    <TextBlock Text="{ui:Tr Opt.Hint}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <ItemsControl ItemsSource="{Binding Optimize}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:OptimizeRow}">
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding ActionText}" Style="{StaticResource Text.Muted}" />
+                                        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                        <Button Style="{StaticResource Button.Outline}" Command="{Binding AnalyzeCommand}" Content="{ui:Tr Opt.Analyze}" Padding="10,4" Margin="0,0,6,0"
+                                                Visibility="{Binding CanAnalyze, Converter={StaticResource BoolToVis}}" />
+                                        <Button Style="{StaticResource Button.Accent}" Command="{Binding OptimizeCommand}" Content="{ui:Tr Opt.Optimize}" Padding="10,4"
+                                                Visibility="{Binding CanOptimize, Converter={StaticResource BoolToVis}}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
                     <TextBlock Text="{ui:Tr Perf.BenchTitle}" Style="{StaticResource Text.Section}" />
                     <TextBlock Text="{ui:Tr Perf.BenchHint}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,0,0,8" />
                     <StackPanel Orientation="Horizontal">

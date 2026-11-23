@@ -5,6 +5,7 @@ using Lasteast.Core.Models;
 using Lasteast.Core.Operations;
 using Lasteast.Core.SmartFix;
 using Lasteast.Presentation.Mvvm;
+using Lasteast.Presentation.Services;
 using static Lasteast.Presentation.ViewModels.Text;
 
 namespace Lasteast.Presentation.ViewModels;
@@ -75,9 +76,14 @@ public sealed class SmartFixPageViewModel : PageViewModel
     private string? _message;
     private CDrivePlan? _cplan;
 
+    private readonly Core.Optimization.IVolumeOptimizer? _optimizer;
+    private readonly IShellService? _shell;
+
     public SmartFixPageViewModel(OperationQueue queue, ISystemProbe probe, Func<Task> refreshInventory, Action openPending, ICommand elevate,
-        Action<string>? navigate = null)
+        Action<string>? navigate = null, Core.Optimization.IVolumeOptimizer? optimizer = null, IShellService? shell = null)
     {
+        _optimizer = optimizer;
+        _shell = shell;
         _navigate = navigate;
         _queue = queue;
         _probe = probe;
@@ -165,8 +171,19 @@ public sealed class SmartFixPageViewModel : PageViewModel
         FixKind.QueueOperations when f.Operations.Count > 0 => new RelayCommand(() => Queue(f.Operations)),
         FixKind.Elevate => _elevate,
         FixKind.Navigate when f.NavigateTo is { } key && _navigate is not null => new RelayCommand(() => _navigate(key)),
+        FixKind.Optimize when f.OptimizeLetter is { } l && _optimizer is not null => new AsyncRelayCommand(() => OptimizeAsync(l, f.OptimizeAction), ex => Message = ErrorText(ex)),
         _ => null,
     };
+
+    /// <summary>Defragments (HDD) or re-TRIMs (SSD) one volume after an explicit confirmation; nothing is deleted.</summary>
+    private async Task OptimizeAsync(char letter, Core.Optimization.OptimizeAction action)
+    {
+        var key = action == Core.Optimization.OptimizeAction.Retrim ? "Opt.ConfirmTrim" : "Opt.ConfirmDefrag";
+        if (_shell is not null && !_shell.Confirm(L("Opt.Title"), Loc.Instance.Format(key, $"{letter}:"))) return;
+        Message = Loc.Instance.Format("Opt.Running", $"{letter}:");
+        await _optimizer!.OptimizeAsync(letter, action);
+        Message = Loc.Instance.Format("Opt.Done", $"{letter}:");
+    }
 
     /// <summary>Adds the fix's operations to the pending queue, then opens the preview/confirmation page.</summary>
     private void Queue(IReadOnlyList<DiskOperation> ops)

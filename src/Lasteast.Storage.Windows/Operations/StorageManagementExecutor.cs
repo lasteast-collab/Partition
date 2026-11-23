@@ -170,7 +170,7 @@ public sealed class StorageManagementExecutor : IOperationExecutor
         catch (COMException ex) { throw new OperationFailedException("Exec.Error.Wmi", ex.Message); }
     }
 
-    private static dynamic? QueryFirst(dynamic svc, string wql) => Step<dynamic?>("query " + wql, () =>
+    internal static dynamic? QueryFirst(dynamic svc, string wql) => Step<dynamic?>("query " + wql, () =>
     {
         dynamic set = svc.ExecQuery(wql);
         return (int)set.Count > 0 ? set.ItemIndex(0) : null;
@@ -199,7 +199,7 @@ public sealed class StorageManagementExecutor : IOperationExecutor
     private static string Wql(string s) => s.Replace("\\", "\\\\").Replace("'", "\\'");
 
     /// <summary>Calls a WMI method; throws with Windows' own extended error message on a non-zero return.</summary>
-    private static dynamic Invoke(dynamic obj, string method, Dictionary<string, object?> args)
+    internal static dynamic Invoke(dynamic obj, string method, Dictionary<string, object?> args)
     {
         dynamic? inParams = null;
         dynamic def = Step<dynamic>($"{method}: method definition", () => obj.Methods_.Item(method));
