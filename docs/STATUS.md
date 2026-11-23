@@ -3,11 +3,25 @@
 Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not be built (see note)
 
 > **Build verification.** Every push is built and tested on GitHub Actions (`windows-latest`): the full solution
-> including the WPF app, 97 unit tests, and integration tests that run the real engine as administrator against
+> including the WPF app, 104 unit tests, and integration tests that run the real engine as administrator against
 > freshly created VHDX virtual disks (create/format/resize/label/letter, MBR↔GPT conversion, partition move,
-> disk clone, bcdboot onto an ESP, offline registry edit) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
+> disk clone, bcdboot onto an ESP, offline registry edit, undelete of files deleted by Windows, restore of a partition deleted by diskpart) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
 
-## Phase 6 — OS migration  (this build)
+## Phase 7 — Partition & file recovery  (this build)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Lost-partition scan, quick (1 MiB, 4 KiB after free-region starts, legacy CHS) and deep (every sector) | ✅ | NTFS, FAT32, exFAT; NTFS found through its backup boot sector when the start is damaged; confidence from backup copies |
+| Restore a found partition (table entry only; new MBR for a disk without table) | ✅ | Through the guarded engine; optional NTFS boot-sector repair from the backup |
+| NTFS deleted-file recovery (MFT records, fixups, resident data, data runs, paths, $Bitmap chance) | ✅ | Tested with files deleted by ntfs-3g (Linux) and by Windows' NTFS driver (CI) |
+| FAT32 deleted-file recovery (long names, contiguous-cluster heuristic) | ✅ | Fragmented deleted FAT files cannot be fully recovered by any tool; marked Poor when clusters are reused |
+| Recover files from a lost partition without restoring it | ✅ | "Browse files" on a found partition |
+| Destination on the source disk refused | ✅ | Resolved from mount points |
+| NTFS compressed / encrypted / attribute-list (very fragmented) files | ⏳ | Listed as not recoverable instead of producing wrong data |
+| exFAT file recovery, file carving by signature (photos, documents without metadata) | ⏳ | |
+| Recovery from a disk image file | ⏳ | The readers work on any block device; UI not built |
+
+## Phase 6 — OS migration
 
 | Feature | Status | Notes |
 |---|---|---|
