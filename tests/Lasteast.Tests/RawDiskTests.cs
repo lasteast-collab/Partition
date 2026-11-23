@@ -94,6 +94,8 @@ internal sealed class DiskImage : IDisposable
     {
         var s0 = new byte[512];
         dev.Read(0, s0);
+        if (s0[510] != 0x55 || s0[511] != 0xAA)
+            return new DiskInfo { Number = number, DevicePath = "img", SizeBytes = (ulong)dev.Length, Style = PartitionStyle.Raw, Partitions = new List<PartitionInfo>() };
         var mbr = PartitionTableCodec.ReadMbr(s0);
         var parts = new List<PartitionInfo>();
         PartitionStyle style;
@@ -112,7 +114,7 @@ internal sealed class DiskImage : IDisposable
             style = PartitionStyle.Mbr;
             int n = 1;
             foreach (var e in mbr.Entries.Where(e => !e.IsEmpty))
-                parts.Add(new PartitionInfo { DiskNumber = number, PartitionNumber = n++, OffsetBytes = (ulong)e.FirstLba * 512, SizeBytes = (ulong)e.Sectors * 512, Style = style, Role = PartitionTypes.Classify(e.Type, false), MbrType = e.Type });
+                parts.Add(new PartitionInfo { DiskNumber = number, PartitionNumber = n++, OffsetBytes = (ulong)e.FirstLba * 512, SizeBytes = (ulong)e.Sectors * 512, Style = style, Role = PartitionTypes.Classify(e.Type, false), MbrType = e.Type, MbrActive = e.Active });
         }
         return new DiskInfo { Number = number, DevicePath = "img", SizeBytes = (ulong)dev.Length, Style = style, Partitions = parts };
     }

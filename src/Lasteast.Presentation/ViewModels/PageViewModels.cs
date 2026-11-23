@@ -72,14 +72,23 @@ public sealed class DashboardViewModel : PageViewModel
         if (_selected is null) return;
         void A(EditorMode m, string glyph, bool destructive = false) =>
             Actions.Add(new ActionItem(L("Action." + m), glyph, destructive, new RelayCommand(() => OpenEditor(m))));
+        var style = _selected.Disk.Disk.Style;
+        void Convert()
+        {
+            if (style == PartitionStyle.Mbr) A(EditorMode.ConvertToGpt, "\uE8AB");
+            else if (style == PartitionStyle.Gpt) A(EditorMode.ConvertToMbr, "\uE8AB");
+        }
         if (_selected.IsUnallocated)
         {
             A(EditorMode.Create, "\uE710");
+            Convert();
             return;
         }
         A(EditorMode.Resize, "\uE740");
+        A(EditorMode.Move, "\uE7C2");
         A(EditorMode.Label, "\uE8AC");
         A(EditorMode.Letter, "\uE8B7");
+        Convert();
         A(EditorMode.Format, "\uE7A8", destructive: true);
         A(EditorMode.Delete, "\uE74D", destructive: true);
     }

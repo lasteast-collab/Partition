@@ -131,8 +131,18 @@ public sealed class GuardedExecutionEngine
             if (planned is null || now is null) return Finish(false, "Exec.Error.DiskMissing", null, n);
             if (DiskFingerprint.Compute(planned) != DiskFingerprint.Compute(now)) return Finish(false, "Exec.Error.LayoutChanged", null, n);
             if (!now.IsVirtual && !policy.AllowPhysicalDisks) return Finish(false, "Exec.Error.PhysicalPolicy", null, n);
-            var sim = LayoutSimulator.Simulate(now, operations.Where(o => o.DiskNumber == n).ToList(), LettersElsewhere(live, n, operations));
+            var sim = LayoutSimulator.Simulate(now, operations.Where(o => o.DiskNumber == n).ToList(), LettersElsewhere(live, n, operations), Lookup(live));
             if (!sim.IsValid) return Finish(false, "Exec.Error.Invalid", null, n);
+        }
+
+        // Clone sources are only read, but they must still be exactly what the user reviewed and not changed by this plan.
+        foreach (var c in operations.OfType<CloneDiskOp>())
+        {
+            var planned = planBase.Disks.FirstOrDefault(d => d.Number == c.SourceDiskNumber);
+            var now = live.Disks.FirstOrDefault(d => d.Number == c.SourceDiskNumber);
+            if (planned is null || now is null) return Finish(false, "Exec.Error.DiskMissing", null, c.SourceDiskNumber);
+            if (DiskFingerprint.Compute(planned) != DiskFingerprint.Compute(now)) return Finish(false, "Exec.Error.LayoutChanged", null, c.SourceDiskNumber);
+            if (diskNumbers.Contains(c.SourceDiskNumber)) return Finish(false, "Clone.Error.SourcePending", null, c.SourceDiskNumber);
         }
 
         foreach (var n in diskNumbers)
@@ -157,7 +167,7 @@ public sealed class GuardedExecutionEngine
             if (cancellationToken.IsCancellationRequested) return Finish(false, "Exec.Error.Cancelled", null, i);
 
             var disk = live.Disks.First(d => d.Number == op.DiskNumber);
-            var expected = LayoutSimulator.Simulate(disk, new[] { op }, LettersElsewhere(live, op.DiskNumber, operations.Skip(i + 1).ToList()));
+            var expected = LayoutSimulator.Simulate(disk, new[] { op }, LettersElsewhere(live, op.DiskNumber, operations.Skip(i + 1).ToList()), Lookup(live));
             if (!expected.IsValid)
             {
                 outcomes[i] = outcomes[i] with { State = StepState.Failed, ErrorKey = "Exec.Error.Invalid" };
@@ -206,6 +216,8 @@ public sealed class GuardedExecutionEngine
         }
     }
 
+    private static Func<int, DiskInfo?> Lookup(StorageInventory inv) => n => inv.Disks.FirstOrDefault(d => d.Number == n);
+
     private static HashSet<char> LettersElsewhere(StorageInventory inv, int diskNumber, IEnumerable<DiskOperation> laterOps)
     {
         var set = new HashSet<char>();
@@ -218,6 +230,8 @@ public sealed class GuardedExecutionEngine
     /// Compares the live disk after a step with the simulated expectation. Returns a description of the
     /// first mismatch, or null. Sizes may differ by up to 1 MiB (Windows rounds to its own granularity).
     /// </summary>
+    private static IEnumerable<PartitionInfo> Real(DiskInfo d) => d.Partitions.Where(p => p.Role != PartitionRole.MbrExtended);
+
     public static string? Verify(DiskOperation op, DiskInfo expected, DiskInfo actual)
     {
         const ulong Tolerance = LayoutSimulator.MiB;
@@ -265,6 +279,21 @@ public sealed class GuardedExecutionEngine
                 if (p?.Volume?.DriveLetter != want) return $"drive letter {p?.Volume?.DriveLetter} != {want}";
                 break;
             }
+            case ConvertStyleOp cs:
+                if (actual.Style != cs.Target) return $"partition style {actual.Style} != {cs.Target}";
+                break;
+            case MovePartitionOp m:
+            {
+                var p = At(actual, m.NewOffsetBytes);
+                if (p is null) return $"no partition at new offset {m.NewOffsetBytes}";
+                var orig = expected.Partitions.First(x => x.OffsetBytes == m.NewOffsetBytes);
+                if (p.SizeBytes != orig.SizeBytes) return $"moved partition size {p.SizeBytes} != {orig.SizeBytes}";
+                break;
+            }
+            case CloneDiskOp:
+                if (actual.Style != expected.Style) return $"partition style {actual.Style} != {expected.Style}";
+                if (Real(actual).Count() != Real(expected).Count()) return $"{Real(actual).Count()} partitions, expected {Real(expected).Count()}";
+                break;
         }
 
         // Every other partition must be untouched.
@@ -276,9 +305,11 @@ public sealed class GuardedExecutionEngine
             ResizePartitionOp r => r.OffsetBytes,
             SetLabelOp l => l.OffsetBytes,
             SetDriveLetterOp s => s.OffsetBytes,
+            MovePartitionOp m => m.NewOffsetBytes,
             _ => ulong.MaxValue,
         };
-        foreach (var e in expected.Partitions.Where(p => p.OffsetBytes != touched && !p.IsPending && p.Role != PartitionRole.MbrExtended))
+        // (After a clone every destination partition is checked here: none is "touched", all must match.)
+        foreach (var e in expected.Partitions.Where(p => p.OffsetBytes != touched && (!p.IsPending || op is CloneDiskOp) && p.Role != PartitionRole.MbrExtended))
         {
             var a = At(actual, e.OffsetBytes);
             if (a is null || a.SizeBytes != e.SizeBytes) return $"unrelated partition at {e.OffsetBytes} changed";

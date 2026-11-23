@@ -38,7 +38,7 @@ public static class OperationUiTests
         var vm = await Create();
         var free = vm.Dashboard.Disks[1].Segments.First(s => s.IsUnallocated);
         vm.Dashboard.Select(free);
-        Assert.Equal(1, vm.Dashboard.Actions.Count);
+        Assert.Equal(2, vm.Dashboard.Actions.Count); // create + convert disk style
         vm.Dashboard.Actions[0].Command.Execute(null);
         var editor = vm.Dashboard.Editor!;
         Assert.Equal(EditorMode.Create, editor.Mode);

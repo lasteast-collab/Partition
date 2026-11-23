@@ -24,6 +24,8 @@
         <DataTemplate DataType="{x:Type vm:SmartFixPageViewModel}"><views:SmartFixView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:StorageAnalyzerViewModel}"><views:AnalyzerView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:CleanupPageViewModel}"><views:CleanupView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ClonePageViewModel}"><views:CloneView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ConversionPageViewModel}"><views:ConversionView /></DataTemplate>
 
         <!-- Sidebar item -->
         <DataTemplate x:Key="NavItemTemplate" DataType="{x:Type vm:NavItem}">

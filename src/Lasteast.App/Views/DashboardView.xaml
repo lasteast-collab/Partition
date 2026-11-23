@@ -236,6 +236,16 @@
                                          AutomationProperties.Name="{ui:Tr Editor.SizeGiB}" />
                                 <TextBlock Text="{Binding RangeText}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" />
                             </StackPanel>
+                            <StackPanel Visibility="{Binding ShowOffset, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
+                                <TextBlock Text="{ui:Tr Editor.NewStartMiB}" Style="{StaticResource Text.Muted}" />
+                                <TextBox Text="{Binding OffsetText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input}"
+                                         AutomationProperties.Name="{ui:Tr Editor.NewStartMiB}" />
+                                <TextBlock Text="{Binding OffsetRangeText}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <Button Content="{ui:Tr Editor.MoveToStart}" Command="{Binding MoveToStartCommand}" Style="{StaticResource Button.Outline}" Margin="0,0,6,0" />
+                                    <Button Content="{ui:Tr Editor.MoveToEnd}" Command="{Binding MoveToEndCommand}" Style="{StaticResource Button.Outline}" />
+                                </StackPanel>
+                            </StackPanel>
                             <StackPanel Visibility="{Binding ShowFileSystem, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
                                 <TextBlock Text="{ui:Tr Prop.FileSystem}" Style="{StaticResource Text.Muted}" />
                                 <ComboBox ItemsSource="{Binding FileSystemOptions}" SelectedItem="{Binding FileSystem}" MinWidth="0"

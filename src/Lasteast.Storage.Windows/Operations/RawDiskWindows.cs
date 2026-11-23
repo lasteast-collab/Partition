@@ -388,3 +388,64 @@ public sealed class RawDiskExecutor
         catch (Exception ex) { _log.Warn($"{exe} {args} failed: {ex.Message}"); }
     }
 }
+
+/// <summary>
+/// The executor used by the app: table/volume operations go through the Windows Storage Management API,
+/// raw operations (conversion, move, clone) through <see cref="RawDiskExecutor"/>. Only
+/// <see cref="Lasteast.Core.Operations.GuardedExecutionEngine"/> may call it.
+/// </summary>
+[SupportedOSPlatform("windows")]
+public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperationExecutor
+{
+    private readonly StorageManagementExecutor _wmi = new();
+    private readonly RawDiskExecutor _raw;
+    private readonly IStorageInventoryProvider _inventory;
+
+    public WindowsOperationExecutor(IStorageInventoryProvider inventory, IAppLog? log = null, string? journalDir = null)
+    {
+        _inventory = inventory;
+        _raw = new RawDiskExecutor(inventory, log, journalDir);
+    }
+
+    /// <summary>Progress of long raw steps (copy/verify), for the progress bar.</summary>
+    public IProgress<RawProgress>? RawProgress { get; set; }
+
+    public async Task ExecuteAsync(Lasteast.Core.Operations.DiskOperation operation, DiskInfo liveDisk, CancellationToken cancellationToken)
+    {
+        switch (operation)
+        {
+            case Lasteast.Core.Operations.ConvertStyleOp c:
+                await Raw(() => _raw.ConvertStyle(liveDisk, c.Target));
+                break;
+            case Lasteast.Core.Operations.MovePartitionOp m:
+            {
+                var part = liveDisk.Partitions.FirstOrDefault(p => p.OffsetBytes == m.OffsetBytes)
+                           ?? throw new Lasteast.Core.Operations.OperationFailedException("Op.Error.NotFound");
+                await Raw(() => _raw.Move(liveDisk, part, m.NewOffsetBytes, RawProgress));
+                break;
+            }
+            case Lasteast.Core.Operations.CloneDiskOp k:
+            {
+                var inv = await _inventory.GetInventoryAsync(CancellationToken.None);
+                var src = inv.Disks.FirstOrDefault(d => d.Number == k.SourceDiskNumber)
+                          ?? throw new Lasteast.Core.Operations.OperationFailedException("Exec.Error.DiskMissing", null, k.SourceDiskNumber);
+                await Raw(() => _raw.Clone(src, liveDisk, k.Mode, k.NewIdentifiers, k.Verify, k.OnlyPartitions, RawProgress, CancellationToken.None));
+                break;
+            }
+            default:
+                await _wmi.ExecuteAsync(operation, liveDisk, cancellationToken);
+                break;
+        }
+        // Give Windows' partition manager a moment to publish the new layout before the engine re-reads it.
+        if (operation is Lasteast.Core.Operations.ConvertStyleOp or Lasteast.Core.Operations.MovePartitionOp or Lasteast.Core.Operations.CloneDiskOp)
+            await Task.Delay(2000, CancellationToken.None);
+    }
+
+    private static Task Raw(Action a) => Task.Run(() =>
+    {
+        try { a(); }
+        catch (RawOperationException ex) { throw new Lasteast.Core.Operations.OperationFailedException(ex.Key, ex.Message); }
+        catch (IOException ex) { throw new Lasteast.Core.Operations.OperationFailedException("Raw.Error.IO", ex.Message); }
+        catch (UnauthorizedAccessException ex) { throw new Lasteast.Core.Operations.OperationFailedException("Raw.Error.Open", ex.Message); }
+    });
+}

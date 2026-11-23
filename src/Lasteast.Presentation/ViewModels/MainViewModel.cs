@@ -93,6 +93,8 @@ public sealed class MainViewModel : ObservableObject
         AnalyzerPage = new StorageAnalyzerViewModel(shell, fileRemover);
         CleanupPage = new CleanupPageViewModel(new Core.Cleanup.CleanupService(fileRemover), cleanupTargets ?? Array.Empty<Core.Cleanup.CleanupTarget>(), privileges);
         CleanupPage.Attach(settings, () => { try { store.Save(settings); } catch (IOException) { } catch (UnauthorizedAccessException) { } });
+        ClonePage = new ClonePageViewModel(Queue, () => SelectedNav = PendingNav);
+        ConversionPage = new ConversionPageViewModel(Queue, () => SelectedNav = PendingNav);
         var smartFixNav = new NavItem("Nav.SmartFix", "\uE945", SmartFixPage);
         NavGroups = new[]
         {
@@ -101,9 +103,9 @@ public sealed class MainViewModel : ObservableObject
                 new NavItem("Nav.AllDisks", "\uEDA2", DisksPage),
                 new NavItem("Nav.AllPartitions", "\uE8FD", PartitionsPage),
                 PendingNav = new NavItem("Nav.Pending", "\uE8FB", PendingPage),
-                Planned("Nav.DiskConversion", "\uE8AB", 2)),
+                new NavItem("Nav.DiskConversion", "\uE8AB", ConversionPage)),
             new NavGroup("NavGroup.Migrate",
-                Planned("Nav.DiskClone", "\uE8C8", 5),
+                new NavItem("Nav.DiskClone", "\uE8C8", ClonePage),
                 Planned("Nav.OsMigration", "\uE895", 6)),
             new NavGroup("NavGroup.Recover",
                 Planned("Nav.PartitionRecovery", "\uE81C", 7),
@@ -172,6 +174,8 @@ public sealed class MainViewModel : ObservableObject
     public SmartFixPageViewModel SmartFixPage { get; }
     public StorageAnalyzerViewModel AnalyzerPage { get; }
     public CleanupPageViewModel CleanupPage { get; }
+    public ClonePageViewModel ClonePage { get; }
+    public ConversionPageViewModel ConversionPage { get; }
     public OperationQueue Queue { get; }
     public PendingPageViewModel PendingPage { get; }
     public NavItem PendingNav { get; } = null!;
@@ -252,6 +256,8 @@ public sealed class MainViewModel : ObservableObject
         SmartFixPage.Refresh(state);
         AnalyzerPage.Refresh(state);
         CleanupPage.Refresh(state);
+        ClonePage.Refresh(state);
+        ConversionPage.Refresh(state);
         SettingsPage.Refresh(state);
         foreach (var g in NavGroups)
         foreach (var i in g.Items)

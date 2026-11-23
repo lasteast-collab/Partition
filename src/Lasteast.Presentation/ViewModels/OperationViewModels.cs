@@ -30,6 +30,10 @@ public static class OperationText
             FormatPartitionOp f => Loc.Instance.Format("OpText.Format", Target(f.OffsetBytes), f.FileSystem, disk),
             ResizePartitionOp r => Loc.Instance.Format("OpText.Resize", Target(r.OffsetBytes), Size(r.NewSizeBytes), disk),
             SetLabelOp s => Loc.Instance.Format("OpText.Label", Target(s.OffsetBytes), s.Label, disk),
+            ConvertStyleOp c => Loc.Instance.Format("OpText.Convert", disk, c.Target == PartitionStyle.Gpt ? "GPT" : "MBR"),
+            MovePartitionOp m => Loc.Instance.Format("OpText.Move", Target(m.OffsetBytes), Size(m.NewOffsetBytes), disk),
+            CloneDiskOp k => Loc.Instance.Format("OpText.Clone", $"{L("Common.Disk")} {k.SourceDiskNumber}", disk,
+                L(k.Mode == Lasteast.Core.RawDisk.CloneMode.UsedSpace ? "Clone.Mode.UsedSpace" : "Clone.Mode.SectorBySector")),
             SetDriveLetterOp s => s.Letter is { } nl
                 ? Loc.Instance.Format("OpText.Letter", Target(s.OffsetBytes), $"{nl}:", disk)
                 : Loc.Instance.Format("OpText.RemoveLetter", Target(s.OffsetBytes), disk),
@@ -42,7 +46,7 @@ public sealed record IssueViewModel(string Text, bool IsError);
 
 public sealed record ActionItem(string Title, string Glyph, bool IsDestructive, RelayCommand Command);
 
-public enum EditorMode { Create, Resize, Format, Label, Letter, Delete }
+public enum EditorMode { Create, Resize, Format, Label, Letter, Delete, Move, ConvertToGpt, ConvertToMbr }
 
 /// <summary>
 /// Inline editor for one operation on the selected segment. Every change re-validates against the
@@ -58,6 +62,7 @@ public sealed class OperationEditorViewModel : ObservableObject
     private string _label = "";
     private string _letter = "";
     private string? _addedText;
+    private string _offsetText = "";
 
     public OperationEditorViewModel(EditorMode mode, SegmentViewModel segment, OperationQueue queue, Action close)
     {
@@ -91,7 +96,14 @@ public sealed class OperationEditorViewModel : ObservableObject
             case EditorMode.Letter:
                 _letter = p?.Volume?.DriveLetter?.ToString() ?? "";
                 break;
+            case EditorMode.Move:
+                (MinBytes, MaxBytes) = MoveRange(disk, p!);
+                // Default: the other end of the available range (the usual "move to make room" direction).
+                _offsetText = Mib(p!.OffsetBytes == MaxBytes ? MinBytes : MaxBytes);
+                break;
         }
+        MoveToStartCommand = new RelayCommand(() => OffsetText = Mib(MinBytes));
+        MoveToEndCommand = new RelayCommand(() => OffsetText = Mib(MaxBytes));
 
         AddCommand = new RelayCommand(Add, () => BuildOperation() is not null && Issues.All(i => !i.IsError));
         CancelCommand = new RelayCommand(_close);
@@ -104,7 +116,28 @@ public sealed class OperationEditorViewModel : ObservableObject
     public bool ShowFileSystem => Mode is EditorMode.Create or EditorMode.Format;
     public bool ShowLabel => Mode is EditorMode.Create or EditorMode.Format or EditorMode.Label;
     public bool ShowLetter => Mode is EditorMode.Create or EditorMode.Letter;
+    public bool ShowOffset => Mode is EditorMode.Move;
     public bool IsDestructive => Mode is EditorMode.Delete or EditorMode.Format;
+    public string OffsetText { get => _offsetText; set { if (Set(ref _offsetText, value)) Revalidate(); } }
+    public RelayCommand MoveToStartCommand { get; }
+    public RelayCommand MoveToEndCommand { get; }
+    public string OffsetRangeText => ShowOffset ? Loc.Instance.Format("Editor.OffsetRange", Mib(MinBytes), Mib(MaxBytes)) : "";
+
+    /// <summary>Lowest and highest start offsets (1 MiB aligned) the partition can move to.</summary>
+    public static (ulong Min, ulong Max) MoveRange(DiskInfo disk, PartitionInfo p)
+    {
+        const ulong MiB = LayoutSimulator.MiB;
+        ulong low = disk.Style == PartitionStyle.Gpt ? Math.Max(disk.UsableStartBytes, LayoutSimulator.GptHeadBytes(disk)) : MiB;
+        low = Math.Max(low, MiB);
+        ulong prevEnd = disk.Partitions.Where(x => !ReferenceEquals(x, p) && x.Role != PartitionRole.MbrExtended && x.EndBytes <= p.OffsetBytes)
+            .Select(x => x.EndBytes).DefaultIfEmpty(low).Max();
+        ulong min = (Math.Max(prevEnd, low) + MiB - 1) / MiB * MiB;
+        ulong next = LayoutSimulator.NextBoundary(disk, p);
+        ulong max = next >= p.SizeBytes ? (next - p.SizeBytes) / MiB * MiB : p.OffsetBytes;
+        return (Math.Min(min, p.OffsetBytes), Math.Max(max, p.OffsetBytes));
+    }
+
+    private static string Mib(ulong bytes) => (bytes / LayoutSimulator.MiB).ToString(CultureInfo.CurrentCulture);
     public ulong MinBytes { get; }
     public ulong MaxBytes { get; }
     public string RangeText => ShowSize ? Loc.Instance.Format("Editor.Range", Size(MinBytes), Size(Math.Max(MinBytes, MaxBytes))) : "";
@@ -163,6 +196,11 @@ public sealed class OperationEditorViewModel : ObservableObject
             case EditorMode.Label: return new SetLabelOp(disk, p!.OffsetBytes, _label.Trim());
             case EditorMode.Letter: return new SetDriveLetterOp(disk, p!.OffsetBytes, letter);
             case EditorMode.Delete: return new DeletePartitionOp(disk, p!.OffsetBytes);
+            case EditorMode.Move:
+                return ulong.TryParse(_offsetText.Trim(), NumberStyles.Integer, CultureInfo.CurrentCulture, out var mib) && mib < ulong.MaxValue / LayoutSimulator.MiB
+                    ? new MovePartitionOp(disk, p!.OffsetBytes, mib * LayoutSimulator.MiB, p.SizeBytes) : null;
+            case EditorMode.ConvertToGpt: return new ConvertStyleOp(disk, PartitionStyle.Gpt);
+            case EditorMode.ConvertToMbr: return new ConvertStyleOp(disk, PartitionStyle.Mbr);
         }
         return null;
     }
@@ -172,7 +210,7 @@ public sealed class OperationEditorViewModel : ObservableObject
         Issues.Clear();
         var op = BuildOperation();
         if (op is null)
-            Issues.Add(new IssueViewModel(L("Editor.InvalidSize"), true));
+            Issues.Add(new IssueViewModel(L(Mode == EditorMode.Move ? "Editor.InvalidOffset" : "Editor.InvalidSize"), true));
         else
             foreach (var i in _queue.Preview(op)) Issues.Add(new IssueViewModel(OperationText.Issue(i), i.IsError));
         AddCommand?.RaiseCanExecuteChanged();

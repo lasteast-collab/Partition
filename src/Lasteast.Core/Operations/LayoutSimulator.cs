@@ -24,7 +24,7 @@ public sealed record SimulationResult(DiskInfo Before, DiskInfo After, IReadOnly
 /// A step with errors leaves the layout unchanged, so later steps are judged against what would
 /// really be on disk.
 /// </summary>
-public static class LayoutSimulator
+public static partial class LayoutSimulator
 {
     public const ulong MiB = 1024 * 1024;
     public const ulong MinimumPartitionBytes = 16 * MiB;
@@ -33,7 +33,9 @@ public static class LayoutSimulator
     public const ulong ShrinkHeadroomBytes = 256 * MiB;
 
     /// <param name="lettersInUse">Drive letters used anywhere on the system, excluding this disk's own volumes.</param>
-    public static SimulationResult Simulate(DiskInfo disk, IReadOnlyList<DiskOperation> operations, IReadOnlySet<char>? lettersInUse = null)
+    /// <param name="otherDisk">Looks up other disks by number (clone sources). Null: clone operations fail validation.</param>
+    public static SimulationResult Simulate(DiskInfo disk, IReadOnlyList<DiskOperation> operations, IReadOnlySet<char>? lettersInUse = null,
+        Func<int, DiskInfo?>? otherDisk = null)
     {
         lettersInUse ??= new HashSet<char>();
         var current = disk;
@@ -43,7 +45,7 @@ public static class LayoutSimulator
             var issues = new List<ValidationIssue>();
             var next = op.DiskNumber != disk.Number
                 ? Fail(issues, "Op.Error.WrongDisk", current)
-                : Apply(current, op, lettersInUse, issues);
+                : Apply(current, op, lettersInUse, issues, otherDisk);
             if (issues.Any(i => i.IsError)) next = current;
             steps.Add(new StepResult(op, next, issues));
             current = next;
@@ -60,8 +62,12 @@ public static class LayoutSimulator
     private static void Warn(List<ValidationIssue> issues, string key, params object[] args)
         => issues.Add(new ValidationIssue(IssueLevel.Warning, key, args));
 
-    private static DiskInfo Apply(DiskInfo d, DiskOperation op, IReadOnlySet<char> lettersElsewhere, List<ValidationIssue> issues)
+    private static DiskInfo Apply(DiskInfo d, DiskOperation op, IReadOnlySet<char> lettersElsewhere, List<ValidationIssue> issues,
+        Func<int, DiskInfo?>? otherDisk)
     {
+        // A clone replaces the whole destination, which may be blank (no partition table yet).
+        if (op is CloneDiskOp clone) return ApplyClone(d, clone, otherDisk, issues);
+
         // ---- disk-level gates
         if (d.Style is not (PartitionStyle.Gpt or PartitionStyle.Mbr)) return Fail(issues, "Op.Error.DiskStyle", d, d.Number);
         if (d.IsDynamic) return Fail(issues, "Op.Error.Dynamic", d, d.Number);
@@ -69,6 +75,7 @@ public static class LayoutSimulator
         if (problems.Count > 0) return Fail(issues, "Op.Error.LayoutProblem", d, d.Number);
 
         if (op is CreatePartitionOp create) return ApplyCreate(d, create, lettersElsewhere, issues);
+        if (op is ConvertStyleOp convert) return ApplyConvert(d, convert, issues);
 
         var offset = op switch
         {
@@ -77,6 +84,7 @@ public static class LayoutSimulator
             ResizePartitionOp x => x.OffsetBytes,
             SetLabelOp x => x.OffsetBytes,
             SetDriveLetterOp x => x.OffsetBytes,
+            MovePartitionOp x => x.OffsetBytes,
             _ => throw new NotSupportedException(op.GetType().Name),
         };
         var target = d.Partitions.FirstOrDefault(p => p.OffsetBytes == offset && p.Role != PartitionRole.MbrExtended);
@@ -95,6 +103,7 @@ public static class LayoutSimulator
             ResizePartitionOp r => ApplyResize(r),
             SetLabelOp l => ApplyLabel(l),
             SetDriveLetterOp s => ApplyLetter(s),
+            MovePartitionOp m => ApplyMove(d, target, m, isWindows, isFirmwareSystem, issues),
             _ => d,
         };
 

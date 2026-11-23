@@ -47,7 +47,7 @@ public partial class App : Application
 
         // The only path to disk changes. Absent in demo mode, so sample data can never be "applied".
         GuardedExecutionEngine? engine = demo ? null : new GuardedExecutionEngine(
-            provider, new StorageManagementExecutor(), new PartitionTableBackupService(), privileges,
+            provider, new WindowsOperationExecutor(provider, _log), new PartitionTableBackupService(), privileges,
             new JsonlOperationHistory(JsonlOperationHistory.DefaultPath), _log);
 
         var vm = new MainViewModel(provider, privileges, settings, store, theme, new ShellService(), _log,

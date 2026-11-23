@@ -2,7 +2,7 @@ using Lasteast.Core.Models;
 
 namespace Lasteast.Core.Operations;
 
-public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter }
+public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone }
 
 /// <summary>
 /// A planned change to one disk. Operations are pure data: they describe intent and are only
@@ -58,6 +58,36 @@ public sealed record SetDriveLetterOp(int DiskNumber, ulong OffsetBytes, char? L
 {
     public override OperationKind Kind => OperationKind.SetDriveLetter;
     public override int EstimatedSeconds => 1;
+}
+
+/// <summary>Non-destructive MBR↔GPT conversion: partitions keep their sectors, only the table changes.</summary>
+public sealed record ConvertStyleOp(int DiskNumber, PartitionStyle Target) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.ConvertStyle;
+    public override int EstimatedSeconds => 5;
+}
+
+/// <summary>
+/// Moves a partition to a new start offset (same size), copying its data with a crash-resumable journal.
+/// Moving the Recovery partition is how "make room to extend C:" works.
+/// </summary>
+public sealed record MovePartitionOp(int DiskNumber, ulong OffsetBytes, ulong NewOffsetBytes, ulong SizeBytes = 0) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.Move;
+    /// <summary>~150 MB/s read+write on the same disk.</summary>
+    public override int EstimatedSeconds => (int)Math.Max(10, SizeBytes / (150UL * 1024 * 1024));
+}
+
+/// <summary>
+/// Copies the partitions of <see cref="SourceDiskNumber"/> onto <see cref="DiskOperation.DiskNumber"/> (the destination).
+/// Everything on the destination is overwritten. The source is only read.
+/// </summary>
+public sealed record CloneDiskOp(int DiskNumber, int SourceDiskNumber, Lasteast.Core.RawDisk.CloneMode Mode, bool NewIdentifiers, bool Verify,
+    IReadOnlyList<ulong>? OnlyPartitions = null, ulong EstimatedBytes = 0) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.Clone;
+    public override bool DestroysData => true;
+    public override int EstimatedSeconds => (int)Math.Max(30, EstimatedBytes * (Verify ? 2UL : 1UL) / (200UL * 1024 * 1024));
 }
 
 public enum IssueLevel { Error, Warning }

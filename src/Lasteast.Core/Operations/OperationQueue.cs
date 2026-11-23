@@ -107,7 +107,13 @@ public sealed class OperationQueue
     {
         var disk = _base?.Disks.FirstOrDefault(d => d.Number == diskNumber);
         if (disk is null) return null;
-        return LayoutSimulator.Simulate(disk, ops.Where(o => o.DiskNumber == diskNumber).ToList(), LettersElsewhere(diskNumber));
+        var sim = LayoutSimulator.Simulate(disk, ops.Where(o => o.DiskNumber == diskNumber).ToList(), LettersElsewhere(diskNumber),
+            n => _base!.Disks.FirstOrDefault(d => d.Number == n));
+        // A clone reads its source when it runs, so the source must not be changed by the same plan.
+        var steps = sim.Steps.Select(s => s.Operation is CloneDiskOp c && ops.Any(o => o.DiskNumber == c.SourceDiskNumber)
+            ? s with { Issues = s.Issues.Append(new ValidationIssue(IssueLevel.Error, "Clone.Error.SourcePending")).ToList() }
+            : s).ToList();
+        return sim with { Steps = steps };
     }
 
     /// <summary>Letters used on other disks now, plus letters other disks' pending operations would assign.</summary>
