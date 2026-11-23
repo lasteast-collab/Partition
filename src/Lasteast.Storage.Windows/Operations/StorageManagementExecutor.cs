@@ -53,9 +53,15 @@ public sealed class StorageManagementExecutor : IOperationExecutor
                     Invoke(PartitionAt(svc, disk, a.OffsetBytes), "SetAttributes", new Dictionary<string, object?> { ["IsActive"] = true });
                     break;
                 case SetHiddenOp h:
-                    Invoke(PartitionAt(svc, disk, h.OffsetBytes), "SetAttributes", disk.Style == PartitionStyle.Gpt
-                        ? new Dictionary<string, object?> { ["IsHidden"] = h.Hidden, ["NoDefaultDriveLetter"] = h.Hidden }
-                        : new Dictionary<string, object?> { ["IsHidden"] = h.Hidden });
+                    if (disk.Style == PartitionStyle.Gpt)
+                        Invoke(PartitionAt(svc, disk, h.OffsetBytes), "SetAttributes", new Dictionary<string, object?> { ["IsHidden"] = h.Hidden, ["NoDefaultDriveLetter"] = h.Hidden });
+                    else
+                    {
+                        // MBR has no hidden flag: hiding means the hidden variant of the type byte (0x07 -> 0x17 ...)
+                        var cur = disk.Partitions.First(p => p.OffsetBytes == h.OffsetBytes).MbrType ?? 0;
+                        var nt = LayoutSimulator.MbrHiddenCounterpart(cur, h.Hidden) ?? throw new OperationFailedException("Attr.Error.HideType");
+                        Invoke(PartitionAt(svc, disk, h.OffsetBytes), "SetAttributes", new Dictionary<string, object?> { ["MbrType"] = (int)nt });
+                    }
                     break;
                 case SetTypeOp t:
                     Invoke(PartitionAt(svc, disk, t.OffsetBytes), "SetAttributes", t.GptType is { } g

@@ -43,7 +43,18 @@ public static class BootToolsIntegrationTests
         Assert.True(b.Partitions.Contains((second.OffsetBytes, second.SizeBytes)), "backup has the deleted partition");
         var op = new RestoreTableOp(vd.Number, b.Folder, b.DiskSize, b.Serial, b.Model, b.Style, b.Partitions, b.Created);
         var r = await engine.ExecuteAsync(new DiskOperation[] { op }, await provider.GetInventoryAsync(), new ExecutionPolicy(false), "APPLY");
-        Assert.True(r.Succeeded, $"{r.FailureKey} {r.FailureDetail}");
+        if (!r.Succeeded)
+        {
+            // diagnostics: what is on the disk, and does Windows catch up later?
+            var now = await vd.ReadAsync();
+            using var dev = new PhysicalDiskDevice(now, writable: false);
+            var head = new byte[34 * 512];
+            dev.Read(0, head);
+            var onDisk = Lasteast.Core.PartitionTables.PartitionTableCodec.ReadGpt(head, 512).Entries.Count;
+            await Task.Delay(15000);
+            var later = (await vd.ReadAsync()).Partitions.Count;
+            throw new AssertionException($"{r.FailureKey} {r.FailureDetail} | entries on disk={onDisk} backup={b.Partitions.Count} windows-now={now.Partitions.Count} windows-15s-later={later}");
+        }
 
         for (int i = 0; i < 20; i++)
         {
