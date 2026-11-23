@@ -196,8 +196,9 @@ public static class RecoveryWriter
 /// <summary>
 /// Reads NTFS by parsing the MFT directly: existing and deleted file records, paths through parent references,
 /// resident and non-resident data (data runs), and the cluster bitmap to judge whether deleted data was overwritten.
-/// Compressed and encrypted files are listed but not extracted. Files whose data is described in extension records
-/// (attribute lists; very fragmented or huge files) are listed as unrecoverable by this reader.
+/// Very fragmented files whose attributes continue in extension records ($ATTRIBUTE_LIST) are followed, and
+/// NTFS-compressed files (LZNT1) are decompressed. Encrypted (EFS) files are listed but cannot be read without the
+/// owner's keys.
 /// </summary>
 public sealed class NtfsRecoveryReader : IRecoveryReader
 {
@@ -205,12 +206,12 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
     private readonly int _bps;
     private readonly long _clusterSize;
     private readonly int _recordSize;
-    private readonly List<(long Vcn, long Lcn, long Count)> _mftRuns;
+    private List<(long Vcn, long Lcn, long Count)> _mftRuns;
     private byte[]? _bitmap;
     private readonly Dictionary<long, RecordInfo> _records = new();
 
     private sealed record RecordInfo(long Number, ushort Sequence, bool InUse, bool IsDirectory, long ParentRef, ushort ParentSeq, string? Name,
-        long Size, DateTime? Created, DateTime? Modified, byte[]? Resident, List<(long Vcn, long Lcn, long Count)>? Runs, string? Problem);
+        long Size, DateTime? Created, DateTime? Modified, byte[]? Resident, List<(long Vcn, long Lcn, long Count)>? Runs, string? Problem, int CompressionUnit);
 
     public NtfsRecoveryReader(IBlockDevice volume)
     {
@@ -239,6 +240,11 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
             if (ApplyFixups(rec0) && FindData(rec0, out _, out _, out _)?.Runs is { Count: > 0 } r) { runs = r; UsedMftMirror = lcn == mirrLcn; break; }
         }
         _mftRuns = runs ?? throw new RawOperationException("Rec.Error.Mft", "MFT record 0 and its mirror are damaged");
+        // a fragmented MFT continues its run list in extension records (found with the runs known so far)
+        var r0 = new byte[_recordSize];
+        if (ReadRecord(0, r0) && Attributes(r0).Any(a => a.Type == 0x20)
+            && FindData(RecordSet(0, r0), out _, out _, out _) is { Runs: { Count: > 0 } full } && full.Sum(x => x.Count) > _mftRuns.Sum(x => x.Count))
+            _mftRuns = full;
         Label = ReadLabel();
     }
 
@@ -303,36 +309,108 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
         }
     }
 
-    private sealed record DataInfo(byte[]? Resident, List<(long Vcn, long Lcn, long Count)>? Runs, long Size);
+    private sealed record DataInfo(byte[]? Resident, List<(long Vcn, long Lcn, long Count)>? Runs, long Size, int CompressionUnit = 0);
 
-    /// <summary>Unnamed $DATA: resident bytes or data runs. flags = attribute flags (compressed/encrypted/sparse).</summary>
+    /// <summary>The base record plus the extension records its $ATTRIBUTE_LIST points to (each checked to belong to it).</summary>
+    private List<byte[]> RecordSet(long n, byte[] baseRec)
+    {
+        var set = new List<byte[]> { baseRec.ToArray() };
+        foreach (var (type, off, _) in Attributes(baseRec))
+        {
+            if (type != 0x20) continue;
+            byte[]? list;
+            if (baseRec[off + 8] == 0)
+            {
+                int vlen = BinaryPrimitives.ReadInt32LittleEndian(baseRec.AsSpan(off + 0x10));
+                int voff = BinaryPrimitives.ReadUInt16LittleEndian(baseRec.AsSpan(off + 0x14));
+                if (off + voff + vlen > baseRec.Length) break;
+                list = baseRec.AsSpan(off + voff, vlen).ToArray();
+            }
+            else
+            {
+                int runOff = BinaryPrimitives.ReadUInt16LittleEndian(baseRec.AsSpan(off + 0x20));
+                long size = BinaryPrimitives.ReadInt64LittleEndian(baseRec.AsSpan(off + 0x30));
+                if (size is <= 0 or > 16 * 1024 * 1024) break;
+                var lruns = DecodeRuns(baseRec, off + runOff, off + BinaryPrimitives.ReadInt32LittleEndian(baseRec.AsSpan(off + 4)));
+                using var ms = new MemoryStream();
+                try { Copy(new DataInfo(null, lruns, size), ms, CancellationToken.None); } catch (RawOperationException) { break; }
+                list = ms.ToArray();
+            }
+            var seen = new HashSet<long> { n };
+            for (int e = 0; e + 0x1A <= list.Length;)
+            {
+                int len = BinaryPrimitives.ReadUInt16LittleEndian(list.AsSpan(e + 4));
+                if (len < 0x1A) break;
+                long rec = BinaryPrimitives.ReadInt64LittleEndian(list.AsSpan(e + 0x10)) & 0xFFFFFFFFFFFF;
+                if (seen.Add(rec))
+                {
+                    var ext = new byte[_recordSize];
+                    bool ok;
+                    try { ok = ReadRecord(rec, ext); } catch (IOException) { ok = false; }
+                    // an extension record names its base record; a reused record does not
+                    if (ok && (BinaryPrimitives.ReadInt64LittleEndian(ext.AsSpan(0x20)) & 0xFFFFFFFFFFFF) == n) set.Add(ext);
+                }
+                e += len;
+            }
+            break;
+        }
+        return set;
+    }
+
     private DataInfo? FindData(byte[] rec, out int flags, out bool hasAttrList, out bool partial)
     {
+        hasAttrList = Attributes(rec).Any(a => a.Type == 0x20);
+        return FindData(new List<byte[]> { rec }, out flags, out partial, out _);
+    }
+
+    /// <summary>
+    /// Unnamed $DATA across a record set: resident bytes, or the run list merged from every segment (segments in
+    /// extension records continue at their own starting VCN). flags = attribute flags (compressed/encrypted/sparse).
+    /// </summary>
+    private DataInfo? FindData(List<byte[]> recs, out int flags, out bool partial, out int compressionUnit)
+    {
         flags = 0;
-        hasAttrList = false;
         partial = false;
+        compressionUnit = 0;
+        var runs = new List<(long Vcn, long Lcn, long Count)>();
+        long size = -1, lastVcn = -1;
+        bool any = false;
+        foreach (var rec in recs)
         foreach (var (type, off, _) in Attributes(rec))
         {
-            if (type == 0x20) hasAttrList = true;
             if (type != 0x80 || rec[off + 9] != 0) continue;
-            flags = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(off + 0x0C));
+            any = true;
             if (rec[off + 8] == 0)
             {
+                flags = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(off + 0x0C));
                 int vlen = BinaryPrimitives.ReadInt32LittleEndian(rec.AsSpan(off + 0x10));
                 int voff = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(off + 0x14));
                 if (off + voff + vlen > rec.Length) return null;
                 return new DataInfo(rec.AsSpan(off + voff, vlen).ToArray(), null, vlen);
             }
             long startVcn = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x10));
-            if (startVcn != 0) partial = true; // the rest lives in an extension record
+            long endVcn = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x18));
             int runOff = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(off + 0x20));
-            long size = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x30));
-            var runs = DecodeRuns(rec, off + runOff, off + BinaryPrimitives.ReadInt32LittleEndian(rec.AsSpan(off + 4)), startVcn);
-            long lastVcn = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x18));
-            if (runs.Sum(r => r.Count) < lastVcn - startVcn + 1) partial = true;
-            return new DataInfo(null, runs, size);
+            if (startVcn == 0)
+            {
+                // sizes and the compression unit are only valid in the first segment
+                flags = BinaryPrimitives.ReadUInt16LittleEndian(rec.AsSpan(off + 0x0C));
+                size = BinaryPrimitives.ReadInt64LittleEndian(rec.AsSpan(off + 0x30));
+                int cu = rec[off + 0x22];
+                compressionUnit = cu is > 0 and <= 8 ? 1 << cu : 0;
+            }
+            lastVcn = Math.Max(lastVcn, endVcn);
+            var seg = DecodeRuns(rec, off + runOff, off + BinaryPrimitives.ReadInt32LittleEndian(rec.AsSpan(off + 4)), startVcn);
+            if (seg.Sum(r => r.Count) < endVcn - startVcn + 1) partial = true;
+            runs.AddRange(seg);
         }
-        return null;
+        if (!any) return null;
+        runs = runs.OrderBy(r => r.Vcn).GroupBy(r => r.Vcn).Select(g => g.First()).ToList();
+        if (size < 0) { partial = true; size = 0; } // first segment missing
+        long covered = 0;
+        foreach (var r in runs) { if (r.Vcn != covered) { partial = true; break; } covered += r.Count; }
+        if (covered < lastVcn + 1) partial = true;
+        return new DataInfo(null, runs, size, (flags & 0x0001) != 0 ? compressionUnit : 0);
     }
 
     /// <summary>Data runs: header nibbles give the length/offset field sizes; offsets are relative and signed; no offset = sparse (Lcn -1).</summary>
@@ -420,27 +498,30 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
             long parent = 0;
             ushort parentSeq = 0;
             DateTime? created = null, modified = null;
-            foreach (var (type, off, _) in Attributes(buf))
+            var set = Attributes(buf).Any(a => a.Type == 0x20) ? RecordSet(n, buf) : new List<byte[]> { buf };
+            foreach (var rec in set)
+            foreach (var (type, off, _) in Attributes(rec))
             {
-                if (buf[off + 8] != 0) continue;
-                int voff = off + BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(off + 0x14));
-                if (type == 0x10 && voff + 16 <= buf.Length)
+                var buf2 = rec;
+                if (buf2[off + 8] != 0) continue;
+                int voff = off + BinaryPrimitives.ReadUInt16LittleEndian(buf2.AsSpan(off + 0x14));
+                if (type == 0x10 && voff + 16 <= buf2.Length)
                 {
-                    created = FileTime(BinaryPrimitives.ReadInt64LittleEndian(buf.AsSpan(voff)));
-                    modified = FileTime(BinaryPrimitives.ReadInt64LittleEndian(buf.AsSpan(voff + 8)));
+                    created = FileTime(BinaryPrimitives.ReadInt64LittleEndian(buf2.AsSpan(voff)));
+                    modified = FileTime(BinaryPrimitives.ReadInt64LittleEndian(buf2.AsSpan(voff + 8)));
                 }
-                if (type == 0x30 && voff + 0x42 <= buf.Length)
+                if (type == 0x30 && voff + 0x42 <= buf2.Length)
                 {
-                    int ns = buf[voff + 0x41];
+                    int ns = buf2[voff + 0x41];
                     int rank = ns switch { 1 => 3, 3 => 3, 0 => 2, _ => 1 }; // Win32 > POSIX > DOS
                     if (rank <= bestNs) continue;
-                    int len = buf[voff + 0x40];
-                    if (voff + 0x42 + len * 2 > buf.Length) continue;
+                    int len = buf2[voff + 0x40];
+                    if (voff + 0x42 + len * 2 > buf2.Length) continue;
                     bestNs = rank;
-                    long pref = BinaryPrimitives.ReadInt64LittleEndian(buf.AsSpan(voff));
+                    long pref = BinaryPrimitives.ReadInt64LittleEndian(buf2.AsSpan(voff));
                     parent = pref & 0xFFFFFFFFFFFF;
                     parentSeq = (ushort)(pref >> 48);
-                    name = Encoding.Unicode.GetString(buf, voff + 0x42, len * 2);
+                    name = Encoding.Unicode.GetString(buf2, voff + 0x42, len * 2);
                 }
             }
             bool isDir = (flags & 0x02) != 0;
@@ -448,14 +529,13 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
             string? problem = null;
             if (!isDir)
             {
-                data = FindData(buf, out var aflags, out var attrList, out var partial);
-                if ((aflags & 0x0001) != 0) problem = "compressed";
-                else if ((aflags & 0x4000) != 0) problem = "encrypted";
-                else if (data is null && attrList) problem = "data in extension records";
-                else if (partial) problem = "data in extension records";
+                data = FindData(set, out var aflags, out var partial, out _);
+                if ((aflags & 0x4000) != 0) problem = "encrypted";
+                else if ((aflags & 0x0001) != 0 && data is { Resident: null, CompressionUnit: 0 }) problem = "compressed (unknown unit)";
+                else if (partial) problem = "part of the location is lost";
             }
             _records[n] = new RecordInfo(n, seq, (flags & 0x01) != 0, isDir, parent, parentSeq, name, data?.Size ?? 0, created, modified,
-                data?.Resident, data?.Runs, problem);
+                data?.Resident, data?.Runs, problem, data?.CompressionUnit ?? 0);
         }
 
         var result = new List<RecoverableFile>();
@@ -496,12 +576,13 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
     {
         if (!_records.TryGetValue(file.Id, out var r)) throw new RawOperationException("Rec.Error.Unknown", "scan the volume first");
         if (r.Problem is not null) throw new RawOperationException("Rec.Error.Unsupported", r.Problem);
-        return Copy(new DataInfo(r.Resident, r.Runs, r.Size), output, ct);
+        return Copy(new DataInfo(r.Resident, r.Runs, r.Size, r.CompressionUnit), output, ct);
     }
 
     private long Copy(DataInfo d, Stream output, CancellationToken ct)
     {
         if (d.Resident is not null) { output.Write(d.Resident); return d.Resident.Length; }
+        if (d.CompressionUnit > 0) return CopyCompressed(d, output, ct);
         long remaining = d.Size, written = 0;
         var buf = new byte[_clusterSize * 64];
         foreach (var (_, lcn, count) in d.Runs!.OrderBy(x => x.Vcn))
@@ -520,6 +601,50 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
             }
         }
         if (remaining > 0) throw new RawOperationException("Rec.Error.Truncated", $"{remaining} bytes missing from the data runs");
+        return written;
+    }
+
+    /// <summary>
+    /// NTFS compression works in units of (usually) 16 clusters: a unit with all clusters allocated is stored raw, one
+    /// whose tail is sparse holds LZNT1-compressed data in its allocated clusters, an all-sparse unit is zeros.
+    /// </summary>
+    private long CopyCompressed(DataInfo d, Stream output, CancellationToken ct)
+    {
+        var runs = d.Runs!;
+        int cu = d.CompressionUnit;
+        long unitBytes = cu * _clusterSize, remaining = d.Size, written = 0;
+        long Lcn(long vcn)
+        {
+            int lo = 0, hi = runs.Count - 1;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) / 2;
+                var r = runs[mid];
+                if (vcn < r.Vcn) hi = mid - 1;
+                else if (vcn >= r.Vcn + r.Count) lo = mid + 1;
+                else return r.Lcn < 0 ? -1 : r.Lcn + (vcn - r.Vcn);
+            }
+            return -1;
+        }
+        var raw = new byte[unitBytes];
+        for (long unit = 0; remaining > 0; unit++)
+        {
+            ct.ThrowIfCancellationRequested();
+            int allocated = 0;
+            for (int k = 0; k < cu; k++) if (Lcn(unit * cu + k) >= 0) allocated++;
+            byte[] plain;
+            if (allocated == 0) plain = new byte[unitBytes];
+            else
+            {
+                for (int k = 0; k < allocated; k++)
+                    _vol.Read(Lcn(unit * cu + k) * _clusterSize, raw.AsSpan((int)(k * _clusterSize), (int)_clusterSize));
+                plain = allocated == cu ? raw : Lznt1.Decompress(raw.AsSpan(0, (int)(allocated * _clusterSize)), (int)unitBytes);
+            }
+            int len = (int)Math.Min(unitBytes, remaining);
+            output.Write(plain, 0, len);
+            remaining -= len;
+            written += len;
+        }
         return written;
     }
 }
@@ -737,5 +862,55 @@ public static class VolumeLocator
             if (full.StartsWith(m, StringComparison.OrdinalIgnoreCase) && m.Length > bestLen) { best = d.Number; bestLen = m.Length; }
         }
         return best;
+    }
+}
+
+/// <summary>LZNT1, the compression NTFS uses: 4 KiB chunks, each either stored or LZ77-coded with a position-dependent split of the copy tokens.</summary>
+public static class Lznt1
+{
+    public static byte[] Decompress(ReadOnlySpan<byte> src, int maxOutput)
+    {
+        var dst = new byte[maxOutput];
+        int sp = 0, dp = 0;
+        while (sp + 2 <= src.Length && dp < maxOutput)
+        {
+            int header = BinaryPrimitives.ReadUInt16LittleEndian(src[sp..]);
+            if (header == 0) break;
+            int size = (header & 0x0FFF) + 1;
+            sp += 2;
+            int end = Math.Min(src.Length, sp + size);
+            int chunkStart = dp;
+            if ((header & 0x8000) == 0)
+            {
+                int n = Math.Min(end - sp, maxOutput - dp);
+                src.Slice(sp, n).CopyTo(dst.AsSpan(dp));
+                dp += n;
+            }
+            else
+            {
+                while (sp < end && dp < maxOutput)
+                {
+                    byte flags = src[sp++];
+                    for (int bit = 0; bit < 8 && sp < end && dp < maxOutput; bit++)
+                    {
+                        if ((flags & (1 << bit)) == 0) { dst[dp++] = src[sp++]; continue; }
+                        if (sp + 2 > end) break;
+                        int token = BinaryPrimitives.ReadUInt16LittleEndian(src[sp..]);
+                        sp += 2;
+                        int shift = 12;
+                        for (int i = dp - chunkStart - 1; i >= 0x10; i >>= 1) shift--;
+                        int offset = (token >> shift) + 1;
+                        int length = (token & ((1 << shift) - 1)) + 3;
+                        if (offset > dp - chunkStart) throw new InvalidDataException("LZNT1 back-reference before the chunk start");
+                        for (int k = 0; k < length && dp < maxOutput; k++, dp++) dst[dp] = dst[dp - offset];
+                    }
+                }
+            }
+            sp = end;
+            // every chunk but the last stands for a full 4 KiB of output
+            if (sp + 2 <= src.Length && BinaryPrimitives.ReadUInt16LittleEndian(src[sp..]) != 0)
+                dp = Math.Min(maxOutput, chunkStart + 4096);
+        }
+        return dst;
     }
 }

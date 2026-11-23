@@ -73,7 +73,9 @@ Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not 
 | FAT32 deleted-file recovery (long names, contiguous-cluster heuristic) | ✅ | Fragmented deleted FAT files cannot be fully recovered by any tool; marked Poor when clusters are reused |
 | Recover files from a lost partition without restoring it | ✅ | "Browse files" on a found partition |
 | Destination on the source disk refused | ✅ | Resolved from mount points |
-| NTFS compressed / encrypted / attribute-list (very fragmented) files | ⏳ | Listed as not recoverable instead of producing wrong data |
+| NTFS compressed (LZNT1) and attribute-list (very fragmented / huge) files | ✅ post-1.0 | Extension records checked to belong to their base record; tested on an ntfs-3g image and on files compressed/fragmented and deleted by Windows (CI) |
+| NTFS encrypted (EFS) files | 🚫 | Listed, not extracted: they cannot be read without the owner's keys |
+| Reading a volume whose boot sector or MFT record 0 is damaged | ✅ post-1.0 | Through the validated backup boot sector (in memory, nothing written) and $MFTMirr |
 | exFAT deleted-file recovery (entry sets with InUse cleared, NoFatChain and FAT-chain files, allocation-bitmap reuse check) | ✅ post-1.0 | Unit-tested on a hand-built image (fsck-clean) and on files deleted by Windows' exFAT driver (CI) |
 | File carving: JPEG, PNG, GIF, PDF, ZIP/DOCX/XLSX/PPTX/EPUB/ODT, MP4/MOV/3GP/M4A/HEIC | ✅ post-1.0 | Structural length parsing (JPEG segments, PNG CRC, GIF blocks, ZIP EOCD, MP4 boxes, PDF trailer); contiguous files only; original names cannot be recovered. Used automatically when the file system is unreadable |
 | Recovery from a disk image file | ✅ post-1.0 | Raw (.img/.dd/.raw/.bin) and fixed VHD read directly, partitions inside listed; VHDX / dynamic VHD attached read-only by Windows. Image never modified (tested) |

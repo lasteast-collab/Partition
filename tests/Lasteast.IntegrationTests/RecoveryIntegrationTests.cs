@@ -104,6 +104,48 @@ public static class RecoveryIntegrationTests
     }
 
     [Test]
+    public static async Task Compressed_and_heavily_fragmented_ntfs_files_deleted_by_windows_are_recovered()
+    {
+        var letter = FreeLetter();
+        using var vd = await VirtualDisk.CreateAsync(1818, "convert gpt", "create partition primary size=96", "format fs=ntfs quick unit=4096 label=LE-ADV", $"assign letter={letter}");
+        var root = $"{letter}:\\";
+        // compressed file (Windows' own LZNT1)
+        var text = System.Text.Encoding.ASCII.GetBytes(string.Concat(Enumerable.Range(0, 40000).Select(i => $"{i:D7} lasteast compressed line {i % 97}\r\n")));
+        File.WriteAllBytes(root + "packed.txt", text);
+        var compact = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("compact.exe", $"/c \"{root}packed.txt\"") { UseShellExecute = false, RedirectStandardOutput = true })!;
+        compact.WaitForExit();
+        Assert.True((File.GetAttributes(root + "packed.txt") & FileAttributes.Compressed) != 0, "file is NTFS-compressed");
+        // fragmented file: small files, fill the rest, delete every other small file, write into the holes
+        Directory.CreateDirectory(root + "holes");
+        for (int i = 0; i < 3000; i++) File.WriteAllBytes(root + $"holes\\h{i:D5}", new byte[4096]);
+        try { using var fill = new FileStream(root + "rest.bin", FileMode.CreateNew); var b = new byte[1 << 20]; while (true) fill.Write(b); }
+        catch (IOException) { }
+        for (int i = 0; i < 3000; i += 2) File.Delete(root + $"holes\\h{i:D5}");
+        var frag = RandomNumberGenerator.GetBytes(1400 * 4096);
+        using (var f = new FileStream(root + "frag.bin", FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            for (int i = 0; i < frag.Length; i += 4096) { f.Write(frag, i, 4096); f.Flush(true); }
+        var part = (await vd.ReadAsync()).Partitions.Single(p => p.Volume?.Label == "LE-ADV");
+        VolumeLocks.Acquire(new[] { part.Volume!.VolumeGuidPath }, dismount: true).Dispose();
+        File.Delete(root + "packed.txt");
+        File.Delete(root + "frag.bin");
+        VolumeLocks.Acquire(new[] { part.Volume!.VolumeGuidPath }, dismount: true).Dispose();
+
+        var disk = await vd.ReadAsync();
+        using var dev = new PhysicalDiskDevice(disk, writable: false);
+        var reader = RecoveryReaders.Open(new OffsetDevice(dev, (long)part.OffsetBytes, (long)part.SizeBytes))!;
+        var deleted = reader.Scan(false, null, CancellationToken.None);
+        foreach (var (name, data) in new[] { ("packed.txt", text), ("frag.bin", frag) })
+        {
+            var f = deleted.SingleOrDefault(x => x.Name == name);
+            Assert.True(f is not null, $"{name} listed; got {deleted.Count} deleted");
+            Assert.True(f!.Recoverability != Recoverability.Unrecoverable, $"{name}: {f.Recoverability} {f.Note}");
+            using var ms = new MemoryStream();
+            reader.Extract(f, ms, CancellationToken.None);
+            Assert.True(ms.ToArray().AsSpan().SequenceEqual(data), $"{name} content identical");
+        }
+    }
+
+    [Test]
     public static async Task Vhdx_image_is_attached_read_only_for_recovery()
     {
         using var vd = await VirtualDisk.CreateAsync(1908, "convert gpt", "create partition primary size=60", "format fs=exfat quick label=LE-IMG");

@@ -416,3 +416,46 @@ public static class BootSectorRepairTests
         Assert.Throws<RawOperationException>(() => BootSectorRepair.Apply(dev, 0, d));
     }
 }
+
+public static class NtfsAdvancedTests
+{
+    [Test]
+    public static void Ntfs_attribute_lists_and_compressed_files_are_recovered_byte_exact()
+    {
+        var expected = File.ReadAllLines(Path.Combine(DiskImage.Fixtures, "ntfs-adv-checksums.txt"))
+            .Select(l => l.Split('\t')).Select(p => (Path: p[0], Deleted: p[1] == "1", Hash: p[2].ToUpperInvariant())).ToList();
+        using var img = new DiskImage(64);
+        img.Put(0, DiskImage.Fixture("ntfs-adv64.img.gz"));
+        using var dev = img.Open();
+        var r = RecoveryReaders.Open(dev)!;
+        var files = r.Scan(true, null, CancellationToken.None);
+        foreach (var e in expected)
+        {
+            var f = files.SingleOrDefault(x => x.FullPath == e.Path);
+            Assert.True(f is not null, $"missing {e.Path}");
+            Assert.True(f!.Recoverability != Recoverability.Unrecoverable, $"{e.Path}: {f.Recoverability} {f.Note}");
+            Assert.Equal(e.Deleted, f.IsDeleted);
+            using var ms = new MemoryStream();
+            r.Extract(f, ms, CancellationToken.None);
+            Assert.Equal(e.Hash, Convert.ToHexString(SHA256.HashData(ms.ToArray())), e.Path);
+        }
+    }
+}
+
+public static class Lznt1Tests
+{
+    [Test]
+    public static void Lznt1_literals_back_references_and_stored_chunks()
+    {
+        // compressed chunk: 'a' 'b' 'c' then copy (offset 3, length 9)
+        var c = new byte[] { 0x05, 0xB0, 0x08, (byte)'a', (byte)'b', (byte)'c', 0x06, 0x20, 0x00, 0x00 };
+        Assert.Equal("abcabcabcabc", System.Text.Encoding.ASCII.GetString(Lznt1.Decompress(c, 12)));
+        // stored (uncompressed) chunk of 4096 bytes followed by a compressed one: output continues at 4096
+        var stored = new byte[2 + 4096 + c.Length];
+        BinaryPrimitives.WriteUInt16LittleEndian(stored, 0x3FFF);
+        for (int i = 0; i < 4096; i++) stored[2 + i] = (byte)'x';
+        c.CopyTo(stored, 2 + 4096);
+        var o = Lznt1.Decompress(stored, 4096 + 12);
+        Assert.True(o.AsSpan(0, 4096).ToArray().All(b => b == 'x') && System.Text.Encoding.ASCII.GetString(o, 4096, 12) == "abcabcabcabc");
+    }
+}
