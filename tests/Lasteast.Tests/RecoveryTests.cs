@@ -57,6 +57,27 @@ public static class RecoveryTests
     }
 
     [Test]
+    public static void Ntfs_files_are_listed_through_the_backup_boot_sector_and_the_mft_mirror()
+    {
+        var exp = Expected();
+        using var img = Volume("ntfs-deleted32.img.gz", 32);
+        var original = img.Get(0, 512);
+        int spc = original[0x0D];
+        long mft = BitConverter.ToInt64(original, 0x30);
+        img.Put(0, new byte[512]);                       // boot sector gone
+        img.Put(mft * spc * 512, new byte[1024]);        // and MFT record 0 too
+        using var dev = img.Open();
+        var r = RecoveryReaders.Open(dev)!;
+        Assert.True(r.ThroughBackupBootSector, "through backup boot sector");
+        var deleted = r.Scan(includeExisting: false, null, CancellationToken.None);
+        Assert.Equal(4, deleted.Count);
+        foreach (var f in deleted) Assert.Equal(exp[f.Name], Hash(r, f), f.Name);
+        var keep = r.Scan(includeExisting: true, null, CancellationToken.None).Single(f => f.Name == "keep.txt");
+        Assert.Equal(exp["keep.txt"], Hash(r, keep));
+        Assert.True(img.Get(0, 512).All(b => b == 0), "the volume was not written");
+    }
+
+    [Test]
     public static void Fat32_deleted_files_recover_long_names_and_content()
     {
         var exp = Expected();
@@ -341,7 +362,8 @@ public static class BootSectorRepairTests
         img.Put(0, new byte[damagedSectors * 512]); // the damage: start of the volume zeroed
         using var dev = img.Open();
         var vol = new OffsetDevice(dev, 0, original.Length + extraBytes);
-        Assert.True(RecoveryReaders.Open(vol) is null, "damaged volume is unreadable");
+        Assert.True(RecoveryReaders.Open(vol)?.ThroughBackupBootSector == true, "damaged volume is read through its backup, without writing");
+        Assert.True(img.Get(0, damagedSectors * 512).All(b => b == 0), "nothing written by reading");
         var d = BootSectorRepair.Diagnose(vol);
         Assert.Equal(BootSectorState.Repairable, d.State);
         Assert.Equal(fs, d.FileSystem);

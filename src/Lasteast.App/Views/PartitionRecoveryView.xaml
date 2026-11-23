@@ -36,6 +36,7 @@
                                         <TextBlock Text="{Binding Result}" TextWrapping="Wrap" Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                        <Button Style="{StaticResource Button.Outline}" Command="{Binding BrowseCommand}" Content="{ui:Tr BootFix.CopyFiles}" ToolTip="{ui:Tr BootFix.CopyFilesHint}" Padding="10,4" Margin="0,0,6,0" />
                                         <Button Style="{StaticResource Button.Outline}" Command="{Binding CheckCommand}" Content="{ui:Tr BootFix.Check}" Padding="10,4" Margin="0,0,6,0" />
                                         <Button Style="{StaticResource Button.Accent}" Command="{Binding RepairCommand}" Content="{ui:Tr BootFix.Repair}" Padding="10,4"
                                                 Visibility="{Binding CanRepair, Converter={StaticResource BoolToVis}}" />

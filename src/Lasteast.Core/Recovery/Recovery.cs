@@ -71,6 +71,39 @@ public interface IRecoveryReader
     IReadOnlyList<RecoverableFile> Scan(bool includeExisting, IProgress<RecoveryScanProgress>? progress, CancellationToken ct);
     /// <summary>Writes the file's content to <paramref name="output"/>; returns bytes written.</summary>
     long Extract(RecoverableFile file, Stream output, CancellationToken ct);
+    /// <summary>Set when the volume is read through its backup boot sector (the start is damaged).</summary>
+    bool ThroughBackupBootSector => false;
+}
+
+/// <summary>A read-only view of a volume with its damaged boot region replaced, in memory only, by the backup copy.</summary>
+public sealed class PatchedDevice(IBlockDevice inner, IReadOnlyList<(long Offset, byte[] Data)> patches) : IBlockDevice
+{
+    public long Length => inner.Length;
+    public int SectorSize => inner.SectorSize;
+
+    public void Read(long offset, Span<byte> buffer)
+    {
+        inner.Read(offset, buffer);
+        foreach (var (po, data) in patches)
+        {
+            long from = Math.Max(offset, po), to = Math.Min(offset + buffer.Length, po + data.Length);
+            if (from < to) data.AsSpan((int)(from - po), (int)(to - from)).CopyTo(buffer[(int)(from - offset)..]);
+        }
+    }
+
+    public void Write(long offset, ReadOnlySpan<byte> buffer) => throw new InvalidOperationException("recovery sources are read-only");
+    public void Flush() { }
+    public void Dispose() { }
+}
+
+/// <summary>Marks a reader that works through the backup boot sector.</summary>
+internal sealed class BackupBootReader(IRecoveryReader inner) : IRecoveryReader
+{
+    public string FileSystem => inner.FileSystem;
+    public string? Label => inner.Label;
+    public IReadOnlyList<RecoverableFile> Scan(bool includeExisting, IProgress<RecoveryScanProgress>? progress, CancellationToken ct) => inner.Scan(includeExisting, progress, ct);
+    public long Extract(RecoverableFile file, Stream output, CancellationToken ct) => inner.Extract(file, output, ct);
+    public bool ThroughBackupBootSector => true;
 }
 
 public static class RecoveryReaders
@@ -83,6 +116,13 @@ public static class RecoveryReaders
         if (bs.AsSpan(3, 8).SequenceEqual("NTFS    "u8)) return new NtfsRecoveryReader(volume);
         if (bs.AsSpan(82, 8).SequenceEqual("FAT32   "u8)) return new Fat32RecoveryReader(volume);
         if (bs.AsSpan(3, 8).SequenceEqual("EXFAT   "u8)) return new ExfatRecoveryReader(volume);
+        // damaged start: read through the file system's own backup boot sector, in memory only (nothing is written)
+        try
+        {
+            var d = BootSectorRepair.Diagnose(volume);
+            if (d.State == BootSectorState.Repairable && Open(new PatchedDevice(volume, d.Writes)) is { } r) return new BackupBootReader(r);
+        }
+        catch (IOException) { }
         return null;
     }
 
@@ -187,16 +227,25 @@ public sealed class NtfsRecoveryReader : IRecoveryReader
         if (_bps is not (512 or 1024 or 2048 or 4096) || spc <= 0 || _recordSize is < 512 or > 65536)
             throw new RawOperationException("Rec.Error.NotNtfs", "implausible NTFS geometry");
         long mftLcn = BinaryPrimitives.ReadInt64LittleEndian(bs.AsSpan(0x30));
+        long mirrLcn = BinaryPrimitives.ReadInt64LittleEndian(bs.AsSpan(0x38));
 
-        var rec0 = new byte[_recordSize];
-        _vol.Read(mftLcn * _clusterSize, rec0);
-        if (!ApplyFixups(rec0)) throw new RawOperationException("Rec.Error.Mft", "MFT record 0 is damaged");
-        _mftRuns = FindData(rec0, out _, out _, out _)?.Runs ?? throw new RawOperationException("Rec.Error.Mft", "MFT has no data runs");
+        // record 0 describes where the MFT lives; when it is damaged, $MFTMirr holds a copy of it
+        List<(long Vcn, long Lcn, long Count)>? runs = null;
+        foreach (var lcn in new[] { mftLcn, mirrLcn })
+        {
+            if (lcn <= 0 || (lcn + 1) * _clusterSize > volume.Length) continue;
+            var rec0 = new byte[_recordSize];
+            _vol.Read(lcn * _clusterSize, rec0);
+            if (ApplyFixups(rec0) && FindData(rec0, out _, out _, out _)?.Runs is { Count: > 0 } r) { runs = r; UsedMftMirror = lcn == mirrLcn; break; }
+        }
+        _mftRuns = runs ?? throw new RawOperationException("Rec.Error.Mft", "MFT record 0 and its mirror are damaged");
         Label = ReadLabel();
     }
 
     public string FileSystem => "NTFS";
     public string? Label { get; }
+    /// <summary>MFT record 0 was damaged and the MFT was located through $MFTMirr.</summary>
+    public bool UsedMftMirror { get; }
     public long ClusterSize => _clusterSize;
 
     private long MftRecordCount => _mftRuns.Sum(r => r.Count) * _clusterSize / _recordSize;

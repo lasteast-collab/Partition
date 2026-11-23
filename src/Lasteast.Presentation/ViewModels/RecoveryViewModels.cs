@@ -52,7 +52,7 @@ public sealed class UnreadablePartitionViewModel : ObservableObject
     private string? _result;
     private RepairBootSectorOp? _op;
 
-    public UnreadablePartitionViewModel(DiskInfo disk, PartitionInfo part, DiskReader? reader, Func<DiskOperation, bool> queue)
+    public UnreadablePartitionViewModel(DiskInfo disk, PartitionInfo part, DiskReader? reader, Func<DiskOperation, bool> queue, Action<RecoverySource> browse)
     {
         _disk = disk;
         _part = part;
@@ -61,7 +61,12 @@ public sealed class UnreadablePartitionViewModel : ObservableObject
         Title = (part.Volume?.DriveLetter is { } l ? $"{l}: · " : "") + $"{Size(part.SizeBytes)} · RAW · " + Loc.Instance.Format("LostP.At", Size(part.OffsetBytes));
         CheckCommand = new AsyncRelayCommand(CheckAsync, ex => Result = ErrorText(ex));
         RepairCommand = new RelayCommand(() => { if (_op is not null && !_queue(_op)) Result = L("BootFix.QueueFailed"); });
+        // copying files off first is always the safest step; it writes nothing to this disk
+        BrowseCommand = new RelayCommand(() => browse(new RecoverySource(disk.Number, part.OffsetBytes, part.SizeBytes,
+            $"{L("Common.Disk")} {disk.Number} · {Title}")));
     }
+
+    public RelayCommand BrowseCommand { get; }
 
     public string Title { get; }
     public string? Result { get => _result; private set { Set(ref _result, value); OnPropertyChanged(nameof(HasResult)); } }
@@ -135,7 +140,7 @@ public sealed class PartitionRecoveryPageViewModel : PageViewModel
                     if (_queue.TryAdd(op).All(i => !i.IsError)) { _openPending(); return true; }
                     Status = string.Join(" ", _queue.Preview(op).Where(i => i.IsError).Select(OperationText.Issue));
                     return false;
-                }));
+                }, _browse));
         OnPropertyChanged(nameof(HasUnreadable));
     }
     public bool DeepScan { get => _deep; set => Set(ref _deep, value); }
@@ -322,7 +327,8 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
             ApplyFilter();
             Status = reader is CarvingRecoveryReader
                 ? Loc.Instance.Format(byContent ? "Rec.Carved" : "Rec.CarvedFallback", files.Count)
-                : Loc.Instance.Format("Rec.Found", files.Count(f => f.IsDeleted), files.Count, reader.FileSystem);
+                : Loc.Instance.Format("Rec.Found", files.Count(f => f.IsDeleted), files.Count, reader.FileSystem)
+                  + (reader.ThroughBackupBootSector ? " " + L("Rec.ThroughBackup") : "");
         }
         catch (OperationCanceledException) { Status = L("LostP.Cancelled"); }
         catch (RawOperationException ex) { Status = Loc.Instance.Format(ex.Key, ex.Message); }
