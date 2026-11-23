@@ -9,6 +9,9 @@ namespace Lasteast.Core.Operations;
 public interface IOperationExecutor
 {
     Task ExecuteAsync(DiskOperation operation, DiskInfo liveDisk, CancellationToken cancellationToken);
+
+    /// <summary>Asks the OS to re-read the disk's partition table (used while waiting for a raw change to show up).</summary>
+    Task RefreshAsync(DiskInfo disk) => Task.CompletedTask;
 }
 
 public sealed record BackupRecord(int DiskNumber, string Folder, string ManifestSha256, DateTimeOffset CreatedAt, bool StoredOnSameDisk);
@@ -203,7 +206,8 @@ public sealed class GuardedExecutionEngine
                 catch (Exception ex) { return FailStep(i, op, sw.Elapsed, "Exec.Error.Inventory", ex.Message); }
                 after = live.Disks.FirstOrDefault(d => d.Number == op.DiskNumber);
                 mismatch = after is null ? "disk missing" : Verify(op, expected.After, after);
-                if (mismatch is null || !raw || attempt >= 5) break;
+                if (mismatch is null || !raw || attempt >= 8) break;
+                try { await _executor.RefreshAsync(disk); } catch (Exception ex) { _log.Info("Refresh after raw write: " + ex.Message); }
                 await Task.Delay(1000, CancellationToken.None);
             }
             bool rewritesTable = op is ConvertStyleOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp;

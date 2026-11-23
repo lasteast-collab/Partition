@@ -99,7 +99,7 @@ public sealed class PhysicalDiskDevice : IBlockDevice
     }
 
     /// <summary>Tells Windows to re-read the partition table.</summary>
-    public void Rescan() => RawNative.Control(_h, RawNative.IOCTL_DISK_UPDATE_PROPERTIES);
+    public bool Rescan() => RawNative.Control(_h, RawNative.IOCTL_DISK_UPDATE_PROPERTIES);
 
     public void Dispose() => _h.Dispose();
 }
@@ -456,6 +456,7 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
             case Lasteast.Core.Operations.RecoverPartitionOp rp:
                 await Raw(() =>
                 {
+                    using var locks = LockWhatCanBeLocked(liveDisk);
                     using var dev = new PhysicalDiskDevice(liveDisk, writable: true);
                     Lasteast.Core.Recovery.PartitionTableEditor.AddEntry(dev, rp.OffsetBytes, rp.SizeBytes, rp.FileSystem, rp.RestoreBootSector);
                     dev.Rescan();
@@ -466,6 +467,7 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
                 await Raw(() =>
                 {
                     var backup = Lasteast.Core.Boot.TableBackups.Load(rt.BackupFolder, (int)liveDisk.BytesPerLogicalSector);
+                    using var locks = LockWhatCanBeLocked(liveDisk);
                     using var dev = new PhysicalDiskDevice(liveDisk, writable: true);
                     Lasteast.Core.Boot.TableBackups.Apply(dev, backup);
                     dev.Rescan();
@@ -486,6 +488,32 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
         if (operation is Lasteast.Core.Operations.ConvertStyleOp or Lasteast.Core.Operations.MovePartitionOp or Lasteast.Core.Operations.CloneDiskOp)
             await Task.Delay(2000, CancellationToken.None);
     }
+
+    /// <summary>
+    /// Dismounts the disk's volumes that are not in use, so Windows rebuilds them from the new table. Volumes in use
+    /// (the running Windows) stay mounted; table writes never touch their sectors.
+    /// </summary>
+    private sealed class LockSet(List<VolumeLocks> locks) : IDisposable
+    {
+        public void Dispose() { foreach (var l in locks) l.Dispose(); }
+    }
+
+    private static IDisposable LockWhatCanBeLocked(DiskInfo disk)
+    {
+        var list = new List<VolumeLocks>();
+        foreach (var v in disk.Partitions.Select(p => p.Volume?.VolumeGuidPath).OfType<string>().Where(v => v.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase)))
+        {
+            try { list.Add(VolumeLocks.Acquire(new[] { v }, dismount: true)); }
+            catch (RawOperationException) { }
+        }
+        return new LockSet(list);
+    }
+
+    public Task RefreshAsync(DiskInfo disk) => Task.Run(() =>
+    {
+        using var dev = new PhysicalDiskDevice(disk, writable: false);
+        if (!dev.Rescan()) _log.Info($"IOCTL_DISK_UPDATE_PROPERTIES on disk {disk.Number} failed: {Marshal.GetLastWin32Error()}");
+    });
 
     private static Task Raw(Action a) => Task.Run(() =>
     {
