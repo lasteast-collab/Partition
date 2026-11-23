@@ -17,9 +17,14 @@
         <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,10">
             <StackPanel>
                 <TextBlock Text="{ui:Tr Rec.Source}" Style="{StaticResource Text.Section}" />
-                <ComboBox ItemsSource="{Binding Sources}" SelectedItem="{Binding Source}" AutomationProperties.Name="{ui:Tr Rec.Source}">
-                    <ComboBox.ItemTemplate><DataTemplate DataType="{x:Type vm:RecoverySource}"><TextBlock Text="{Binding Title}" /></DataTemplate></ComboBox.ItemTemplate>
-                </ComboBox>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <ComboBox ItemsSource="{Binding Sources}" SelectedItem="{Binding Source}" AutomationProperties.Name="{ui:Tr Rec.Source}">
+                        <ComboBox.ItemTemplate><DataTemplate DataType="{x:Type vm:RecoverySource}"><TextBlock Text="{Binding Title}" /></DataTemplate></ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Grid.Column="1" Style="{StaticResource Button.Outline}" Command="{Binding OpenImageCommand}" Content="{ui:Tr Rec.OpenImage}"
+                            ToolTip="{ui:Tr Rec.OpenImageHint}" Padding="12,6" Margin="8,0,0,0" />
+                </Grid>
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <CheckBox IsChecked="{Binding IncludeExisting}" Content="{ui:Tr Rec.IncludeExisting}" VerticalAlignment="Center" Margin="0,0,12,0" />
                     <CheckBox IsChecked="{Binding ByContent}" Content="{ui:Tr Rec.ByContent}" ToolTip="{ui:Tr Rec.ByContentHint}" VerticalAlignment="Center" Margin="0,0,12,0" />

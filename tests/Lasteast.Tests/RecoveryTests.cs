@@ -1,3 +1,8 @@
+using System.Buffers.Binary;
+using Lasteast.Core.Localization;
+using Lasteast.Core.PartitionTables;
+using Lasteast.Presentation.Services;
+using Lasteast.Presentation.ViewModels;
 using System.Security.Cryptography;
 using Lasteast.Core.Models;
 using Lasteast.Core.Operations;
@@ -212,5 +217,116 @@ public static class CarvingTests
         foreach (var e in expected)
             Assert.True(got.Contains(e), $"missing {e.Ext} at {e.Offset}; got [{string.Join(", ", got.Select(g => $"{g.Ext}@{g.Offset}:{g.Hash[..8]}"))}]");
         Assert.Equal(expected.Count, got.Count);
+    }
+}
+
+public static class ExfatRecoveryTests
+{
+    [Test]
+    public static void Exfat_lists_and_restores_deleted_files_byte_exact()
+    {
+        var expected = File.ReadAllLines(Path.Combine(DiskImage.Fixtures, "exfat-checksums.txt"))
+            .Select(l => l.Split('\t')).Select(p => (Path: p[0], Deleted: p[1] == "1", Hash: p[2].ToUpperInvariant())).ToList();
+        using var img = new DiskImage(16);
+        img.Put(0, DiskImage.Fixture("exfat16.img.gz"));
+        using var dev = img.Open();
+        var reader = RecoveryReaders.Open(dev);
+        Assert.True(reader is ExfatRecoveryReader, "exFAT not detected");
+        Assert.Equal("LE-EXFAT", reader!.Label);
+        var files = reader.Scan(true, null, CancellationToken.None);
+        foreach (var e in expected)
+        {
+            var f = files.SingleOrDefault(x => x.FullPath == e.Path);
+            Assert.True(f is not null, $"missing {e.Path}; got [{string.Join(", ", files.Select(x => x.FullPath))}]");
+            Assert.Equal(e.Deleted, f!.IsDeleted);
+            Assert.True((e.Deleted ? Recoverability.Good : Recoverability.Intact) == f.Recoverability, $"{e.Path}: {f.Recoverability}");
+            using var ms = new MemoryStream();
+            reader.Extract(f, ms, CancellationToken.None);
+            Assert.Equal(e.Hash, Convert.ToHexString(SHA256.HashData(ms.ToArray())));
+        }
+        Assert.Equal(expected.Count, files.Count);
+        // without "include existing", only deleted files are listed
+        Assert.Equal(expected.Count(e => e.Deleted), reader.Scan(false, null, CancellationToken.None).Count);
+    }
+}
+
+public static class DiskImageTests
+{
+    private static DiskImage MbrImageWithExfat()
+    {
+        var img = new DiskImage(18);
+        var s0 = new byte[512];
+        PartitionTableCodec.WriteMbr(s0, new MbrDisk(0x1234, new byte[446], new[] { new MbrEntry(false, 0x07, 2048, 16 * 2048) }));
+        img.Put(0, s0);
+        img.Put(DiskImage.MiB, DiskImage.Fixture("exfat16.img.gz"));
+        return img;
+    }
+
+    [Test]
+    public static void Raw_image_lists_its_partitions_and_the_whole_image()
+    {
+        using var img = MbrImageWithExfat();
+        Assert.Equal(DiskImageKind.Raw, DiskImages.Classify(img.Path));
+        using var dev = DiskImages.Open(img.Path);
+        var regions = DiskImages.Regions(dev);
+        Assert.Equal(2, regions.Count);
+        Assert.Equal(new ImageRegion(DiskImage.MiB, 16 * DiskImage.MiB, "exFAT", 1), regions[0]);
+        Assert.Equal(new ImageRegion(0, 18 * DiskImage.MiB, "", null), regions[1]);
+        Assert.Throws<InvalidOperationException>(() => dev.Write(0, new byte[512]));
+    }
+
+    [Test]
+    public static void Fixed_vhd_excludes_its_footer_and_vhdx_needs_attaching()
+    {
+        using var img = new DiskImage(16);
+        img.Put(0, DiskImage.Fixture("exfat16.img.gz"));
+        var footer = new byte[512];
+        "conectix"u8.CopyTo(footer);
+        BinaryPrimitives.WriteUInt32BigEndian(footer.AsSpan(0x3C), 2);
+        using (var fs = new FileStream(img.Path, FileMode.Append)) fs.Write(footer);
+        Assert.Equal(DiskImageKind.FixedVhd, DiskImages.Classify(img.Path));
+        using (var dev = DiskImages.Open(img.Path))
+        {
+            Assert.Equal(16 * DiskImage.MiB, dev.Length);
+            Assert.Equal("exFAT", DiskImages.Regions(dev).Single().FileSystem); // the image is one volume
+        }
+        BinaryPrimitives.WriteUInt32BigEndian(footer.AsSpan(0x3C), 3); // dynamic
+        img.Put(16 * DiskImage.MiB, footer);
+        Assert.Equal(DiskImageKind.NeedsAttach, DiskImages.Classify(img.Path));
+        img.Put(0, "vhdxfile"u8.ToArray());
+        Assert.Equal(DiskImageKind.NeedsAttach, DiskImages.Classify(img.Path));
+        var ex = Assert.Throws<RawOperationException>(() => DiskImages.Open(img.Path));
+        Assert.Equal("Rec.Image.NeedsAttach", ex.Key);
+    }
+
+    [Test]
+    public static async Task File_recovery_page_recovers_from_an_image_file()
+    {
+        Loc.Instance.SetLanguage("en");
+        using var img = MbrImageWithExfat();
+        var dest = Path.Combine(Path.GetTempPath(), "lasteast-rec-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var shell = new NullShellService { SaveFileAnswer = img.Path };
+            var vm = new FileRecoveryPageViewModel(null, shell);
+            await vm.OpenImageCommand.ExecuteAsync();
+            Assert.True(vm.Source?.ImagePath == img.Path && vm.Source.OffsetBytes == (ulong)DiskImage.MiB, $"source: {vm.Source?.Title} / {vm.Status}");
+            await vm.ScanCommand.ExecuteAsync();
+            Assert.Equal(4, vm.Files.Count);
+            foreach (var f in vm.Files) f.IsSelected = true;
+            Directory.CreateDirectory(dest);
+            vm.Destination = dest;
+            await vm.RecoverCommand.ExecuteAsync();
+            var expected = File.ReadAllLines(Path.Combine(DiskImage.Fixtures, "exfat-checksums.txt")).Select(l => l.Split('\t')).Where(p => p[1] == "1");
+            foreach (var p in expected)
+            {
+                var file = Path.Combine(dest, p[0].Replace('\\', Path.DirectorySeparatorChar));
+                Assert.True(File.Exists(file), $"not recovered: {p[0]} ({vm.Status})");
+                Assert.Equal(p[2].ToUpperInvariant(), Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))));
+            }
+            // the image itself is unchanged
+            Assert.True(DiskImage.Fixture("exfat16.img.gz").AsSpan().SequenceEqual(img.Get(DiskImage.MiB, 16 * (int)DiskImage.MiB)), "image changed");
+        }
+        finally { if (Directory.Exists(dest)) Directory.Delete(dest, true); }
     }
 }

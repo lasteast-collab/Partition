@@ -16,6 +16,7 @@ using Lasteast.Storage.Windows.Operations;
 //   lasteast inventory [--json] [--show-serials]
 //   lasteast scan-lost <disk> [--deep]                      read-only
 //   lasteast undelete <disk> <offset> <size> --to <folder> [--all] [--by-content]
+//   lasteast undelete-image <file> [--region N] --to <folder> [--all] [--by-content]
 //   lasteast backup <folder>... --to <folder> [--no-verify]
 //   lasteast bcd                                             read-only
 //   lasteast account-help [--lang xx]
@@ -52,6 +53,7 @@ internal static class Cli
                 "inventory" => await Inventory(args),
                 "scan-lost" => await ScanLost(args),
                 "undelete" => await Undelete(args),
+                "undelete-image" => UndeleteImage(args),
                 "backup" => Backup(args),
                 "bcd" => Bcd(),
                 "account-help" => AccountHelp(),
@@ -74,6 +76,7 @@ internal static class Cli
         Console.WriteLine("Lasteast Partition — command line");
         Console.WriteLine("  inventory [--json] [--show-serials]                 list disks and partitions (read-only)");
         Console.WriteLine("  scan-lost <disk> [--deep]                           find lost partitions (read-only)");
+        Console.WriteLine("  undelete-image <file> [--region N] --to <folder> [--all] [--by-content]  same, from a raw image or fixed VHD (read-only);\n      without --region the regions in the image are listed");
         Console.WriteLine("  undelete <disk> <offset> <size> --to <folder> [--all] [--by-content]  copy deleted (or all) files of a volume to another disk;\n      --by-content finds photos/videos/PDF/Office files by their content (also used when the file system is unreadable)");
         Console.WriteLine("  backup <folder>... --to <folder> [--no-verify]      copy folders and verify");
         Console.WriteLine("  bcd                                                 show boot entries (read-only)");
@@ -186,6 +189,35 @@ internal static class Cli
         var to = Opt(args, "--to") ?? throw new ArgumentException("--to <folder> is required");
         var inv = await Inv();
         return RecoverFiles(inv, disk, off, size, to, args.Contains("--all"), interactive: false, byContent: args.Contains("--by-content"));
+    }
+
+    private static int UndeleteImage(string[] args)
+    {
+        if (args.Length < 2 || !File.Exists(args[1])) throw new ArgumentException("image file expected");
+        using var dev = DiskImages.Open(args[1]);
+        var regions = DiskImages.Regions(dev);
+        if (Opt(args, "--region") is not { } r || !int.TryParse(r, out var ri) || ri < 1 || ri > regions.Count)
+        {
+            for (int i = 0; i < regions.Count; i++)
+            {
+                var g = regions[i];
+                Console.WriteLine($"  {i + 1}. {(g.PartitionNumber is { } pn ? $"partition {pn}" : g.FileSystem.Length > 0 ? "volume" : "whole image")}  {(g.FileSystem.Length > 0 ? g.FileSystem : "RAW"),-6} @ {g.Offset}  {ByteSize.Format((ulong)g.Length, C)}");
+            }
+            Console.WriteLine("Choose one with --region N.");
+            return 2;
+        }
+        var to = Opt(args, "--to") ?? throw new ArgumentException("--to <folder> is required");
+        var reg = regions[ri - 1];
+        var vol = new OffsetDevice(dev, reg.Offset, reg.Length);
+        IRecoveryReader reader = (args.Contains("--by-content") ? null : RecoveryReaders.Open(vol)) ?? new CarvingRecoveryReader(vol);
+        bool all = args.Contains("--all");
+        var files = reader.Scan(all, null, CancellationToken.None);
+        var wanted = files.Where(f => f.Recoverability != Recoverability.Unrecoverable && (all || f.IsDeleted)).ToList();
+        Console.WriteLine($"  {reader.FileSystem}: {wanted.Count} file(s) will be copied to {to}.");
+        var rep = RecoveryWriter.Recover(reader, wanted, to, -1, null, null, CancellationToken.None);
+        Console.WriteLine($"  Recovered {rep.Recovered} file(s), {ByteSize.Format((ulong)rep.Bytes, C)}; {rep.Failed} failed.");
+        foreach (var (f, e) in rep.Errors.Take(10)) Console.WriteLine($"    ! {f}: {e}");
+        return rep.Failed == 0 ? 0 : 1;
     }
 
     private static int RecoverFiles(StorageInventory inv, DiskInfo disk, ulong off, ulong size, string to, bool all, bool interactive, bool byContent = false)

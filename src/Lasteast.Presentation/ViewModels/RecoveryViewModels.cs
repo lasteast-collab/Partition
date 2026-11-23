@@ -14,7 +14,8 @@ namespace Lasteast.Presentation.ViewModels;
 public delegate IBlockDevice DiskReader(DiskInfo disk);
 
 /// <summary>A place to recover files from: an existing partition or a lost one found by the scanner.</summary>
-public sealed record RecoverySource(int DiskNumber, ulong OffsetBytes, ulong SizeBytes, string Title)
+/// <param name="ImagePath">Set when the source is a disk-image file (DiskNumber is then -1).</param>
+public sealed record RecoverySource(int DiskNumber, ulong OffsetBytes, ulong SizeBytes, string Title, string? ImagePath = null)
 {
     public override string ToString() => Title;
 }
@@ -160,10 +161,16 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
     private IBlockDevice? _openDevice;
     private List<RecoverableFileViewModel> _all = new();
 
-    public FileRecoveryPageViewModel(DiskReader? reader, IShellService shell)
+    private readonly Core.Info.IVirtualDiskManager? _vd;
+    private readonly Func<Task>? _refresh;
+
+    public FileRecoveryPageViewModel(DiskReader? reader, IShellService shell, Core.Info.IVirtualDiskManager? virtualDisks = null, Func<Task>? refresh = null)
     {
         _reader = reader;
         _shell = shell;
+        _vd = virtualDisks;
+        _refresh = refresh;
+        OpenImageCommand = new AsyncRelayCommand(OpenImageAsync, ex => { Status = ex.Message; Busy = false; });
         ScanCommand = new AsyncRelayCommand(ScanAsync, ex => { Status = ex.Message; Busy = false; });
         RecoverCommand = new AsyncRelayCommand(RecoverAsync, ex => { Status = ex.Message; Busy = false; });
         CancelCommand = new RelayCommand(() => _cts?.Cancel());
@@ -177,6 +184,7 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
     public ObservableCollection<RecoverableFileViewModel> Files { get; } = new();
     public AsyncRelayCommand ScanCommand { get; }
     public AsyncRelayCommand RecoverCommand { get; }
+    public AsyncRelayCommand OpenImageCommand { get; }
     public RelayCommand CancelCommand { get; }
     public RelayCommand BrowseDestinationCommand { get; }
     public RelayCommand SelectAllCommand { get; }
@@ -212,7 +220,8 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
     {
         var src = _source;
         var disk = _inv?.Disks.FirstOrDefault(d => d.Number == src?.DiskNumber);
-        if (src is null || disk is null || _reader is null) { Status = L(_reader is null ? "Rec.Unavailable" : "Rec.PickSource"); return; }
+        if (src is null || (src.ImagePath is null && (disk is null || _reader is null)))
+        { Status = L(src is not null && _reader is null ? "Rec.Unavailable" : "Rec.PickSource"); return; }
         Busy = true;
         Files.Clear();
         _all.Clear();
@@ -224,7 +233,7 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
         {
             var (reader, dev, files) = await Task.Run(() =>
             {
-                var dev = _reader(disk);
+                var dev = src.ImagePath is { } image ? DiskImages.Open(image) : _reader!(disk!);
                 try
                 {
                     var vol = new OffsetDevice(dev, (long)src.OffsetBytes, (long)src.SizeBytes);
@@ -261,7 +270,8 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
         var selected = _all.Where(f => f.IsSelected).Select(f => f.File).ToList();
         if (selected.Count == 0) { Status = L("Rec.NothingSelected"); return; }
         int? destDisk = _inv is null ? null : VolumeLocator.DiskOfPath(_inv, _destination);
-        if (destDisk == _source.DiskNumber) { Status = L("Rec.Error.SameDisk"); return; }
+        // an image file is never written, so any destination outside the image works; a disk must not receive its own files
+        if (_source.ImagePath is null && destDisk == _source.DiskNumber) { Status = L("Rec.Error.SameDisk"); return; }
         Busy = true;
         _cts = new CancellationTokenSource();
         var reader = _openReader;
@@ -277,12 +287,48 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
         Busy = false;
     }
 
+    /// <summary>Adds a disk-image file as a source: raw images and fixed VHDs are read directly; VHDX/dynamic VHD are attached read-only.</summary>
+    private async Task OpenImageAsync()
+    {
+        if (_shell.PickOpenFile(DiskImages.FileFilter) is not { } path) return;
+        Busy = true;
+        try
+        {
+            if (await Task.Run(() => DiskImages.Classify(path)) == DiskImageKind.NeedsAttach)
+            {
+                if (_vd is null) { Status = L("Rec.Image.NeedsAttach"); return; }
+                var device = await Task.Run(() => _vd.AttachReadOnly(path));
+                if (_refresh is not null) await _refresh();
+                int n = int.TryParse(new string(device.Reverse().TakeWhile(char.IsDigit).Reverse().ToArray()), out var x) ? x : -1;
+                Source = Sources.FirstOrDefault(s => s.DiskNumber == n && s.OffsetBytes == 0 && s.ImagePath is null) ?? Source;
+                Status = Loc.Instance.Format("Rec.Image.Attached", Path.GetFileName(path), n);
+                return;
+            }
+            var regions = await Task.Run(() => { using var dev = DiskImages.Open(path); return DiskImages.Regions(dev); });
+            var name = Path.GetFileName(path);
+            RecoverySource? firstSrc = null;
+            foreach (var r in regions)
+            {
+                var what = r.PartitionNumber is { } pn ? $"{L("Rec.Image.Partition")} {pn}" : r.FileSystem.Length > 0 ? L("Rec.Image.Volume") : L("Rec.WholeDisk");
+                var src = new RecoverySource(-1, (ulong)r.Offset, (ulong)r.Length,
+                    $"{L("Rec.Image")} {name} · {what} · {(r.FileSystem.Length > 0 ? r.FileSystem : "RAW")} · {Size((ulong)r.Length)}", path);
+                if (!Sources.Contains(src)) Sources.Insert(0, src);
+                firstSrc ??= src;
+            }
+            Source = firstSrc;
+            Status = Loc.Instance.Format("Rec.Image.Opened", name, regions.Count);
+        }
+        catch (RawOperationException ex) { Status = Loc.Instance.Format(ex.Key, ex.Message); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException) { Status = ex.Message; }
+        finally { Busy = false; }
+    }
+
     public override void Refresh(AppState state)
     {
         base.Refresh(state);
         _inv = state.Inventory;
         var keep = _source;
-        var lost = Sources.Where(s => s.Title.Contains(L("LostP.Lost"))).ToList();
+        var lost = Sources.Where(s => s.ImagePath is not null || s.Title.Contains(L("LostP.Lost"))).ToList();
         Sources.Clear();
         foreach (var s in lost) Sources.Add(s);
         foreach (var d in _inv?.Disks ?? Array.Empty<DiskInfo>())

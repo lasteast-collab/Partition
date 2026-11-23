@@ -131,6 +131,7 @@ public sealed class WindowsVirtualDiskManager : Lasteast.Core.Info.IVirtualDiskM
 {
     public void Create(string path, ulong sizeBytes, bool dynamic) => VirtualDiskService.Create(path, sizeBytes, dynamic);
     public string Attach(string path) => VirtualDiskService.Attach(path);
+    public string AttachReadOnly(string path) => VirtualDiskService.Attach(path, readOnly: true);
     public void Detach(string path) => VirtualDiskService.Detach(path);
     public string? BackingFile(string devicePath) => VirtualDiskService.BackingFile(devicePath);
 }

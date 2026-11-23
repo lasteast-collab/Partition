@@ -14,7 +14,9 @@ of the way if needed. Use Cleanup and Storage Analyzer to free space without tou
 swap, or "both disks stay connected" to boot either one. Disk Clone copies any disk or chosen partitions.
 
 **Something is lost** — Recover › Partition Recovery finds deleted or lost partitions; File Recovery copies deleted files
-to another disk. Do not write to the affected disk until you are done.
+(NTFS, FAT32, exFAT) to another disk. After a format, or when the file system is unreadable, tick "Search by file content"
+to find photos, videos, PDF and Office files by their content (names are generated). For a failing disk, make an image
+first and use "Open disk image…" — the image is never modified. Do not write to the affected disk until you are done.
 
 **PC does not start** — Recover › Boot Recovery: back up and rebuild boot files, restore a partition table from Lasteast's
 backups, or build the Rescue Boot ISO (needs Microsoft's Windows ADK + WinPE add-on). Account Recovery explains Microsoft's

@@ -36,6 +36,8 @@ public interface IVirtualDiskManager
     void Create(string path, ulong sizeBytes, bool dynamic);
     /// <summary>Returns the device path of the attached disk (\\.\PhysicalDriveN).</summary>
     string Attach(string path);
+    /// <summary>Attaches read-only (nothing can be written to the image, Windows included). Returns \\.\PhysicalDriveN.</summary>
+    string AttachReadOnly(string path);
     void Detach(string path);
     string? BackingFile(string devicePath);
 }

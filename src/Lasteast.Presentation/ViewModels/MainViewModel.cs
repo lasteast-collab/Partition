@@ -100,7 +100,7 @@ public sealed class MainViewModel : ObservableObject
         ClonePage = new ClonePageViewModel(Queue, () => SelectedNav = PendingNav);
         ConversionPage = new ConversionPageViewModel(Queue, () => SelectedNav = PendingNav);
         MigrationPage = new OsMigrationPageViewModel(Queue, () => SelectedNav = PendingNav);
-        FileRecoveryPage = new FileRecoveryPageViewModel(diskReader, shell);
+        FileRecoveryPage = new FileRecoveryPageViewModel(diskReader, shell, virtualDisks, RefreshAsync);
         BootPage = new BootRecoveryPageViewModel(bootTools ?? new NullBootTools(), rescueBuilder ?? new NullRescueMediaBuilder(), Queue, shell,
             tableBackupRoot ?? Path.Combine(Path.GetTempPath(), "lasteast-none"), () => SelectedNav = PendingNav);
         BackupPage = new BackupPageViewModel(shell);

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+**Recovery**
+- exFAT deleted-file recovery (USB sticks, SD cards, camera cards), including files in deleted folders.
+- "Search by file content" (file carving) finds photos, videos, PDF and Office files after a format or on unreadable file
+  systems; it is also used automatically when no file system is recognised. Names and folders cannot be recovered this way.
+- Disk-image files as a recovery source: raw images and fixed VHDs are read directly, VHDX and dynamic VHDs are attached
+  read-only. Whole-disk sources for searching when the partition table is gone.
+- Command line: `undelete --by-content`, `undelete-image`.
+
+**Disk management**
+- Partition attributes: set active (MBR), hide / unhide, change partition type; initialize a blank disk as GPT or MBR.
+
 ## 1.0.0-preview.1
 
 First complete preview of Lasteast Partition: all 11 roadmap phases are implemented. "Preview" because the app has been

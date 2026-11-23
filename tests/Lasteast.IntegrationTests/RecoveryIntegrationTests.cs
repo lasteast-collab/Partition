@@ -70,6 +70,63 @@ public static class RecoveryIntegrationTests
     }
 
     [Test]
+    public static async Task Exfat_files_deleted_by_windows_are_recovered_byte_exact()
+    {
+        var letter = FreeLetter();
+        using var vd = await VirtualDisk.CreateAsync(1908, "convert gpt", "create partition primary size=120", "format fs=exfat quick label=LE-EXFAT", $"assign letter={letter}");
+        var root = $"{letter}:\\";
+        var big = RandomNumberGenerator.GetBytes(3 * 1024 * 1024 + 77);
+        var small = RandomNumberGenerator.GetBytes(5000);
+        Directory.CreateDirectory(root + @"Camera\2026");
+        foreach (var (name, data) in new[] { (@"Camera\2026\clip-with-a-rather-long-name.mp4", big), ("small.bin", small) })
+            using (var fs = new FileStream(root + name, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            { fs.Write(data); fs.Flush(flushToDisk: true); }
+        var part = (await vd.ReadAsync()).Partitions.Single(p => p.Volume?.Label == "LE-EXFAT");
+        VolumeLocks.Acquire(new[] { part.Volume!.VolumeGuidPath }, dismount: true).Dispose();
+        File.Delete(root + @"Camera\2026\clip-with-a-rather-long-name.mp4");
+        File.Delete(root + "small.bin");
+        VolumeLocks.Acquire(new[] { part.Volume!.VolumeGuidPath }, dismount: true).Dispose();
+
+        var disk = await vd.ReadAsync();
+        using var dev = new PhysicalDiskDevice(disk, writable: false);
+        var reader = RecoveryReaders.Open(new OffsetDevice(dev, (long)part.OffsetBytes, (long)part.SizeBytes));
+        Assert.True(reader is ExfatRecoveryReader, "exFAT reader");
+        var deleted = reader!.Scan(false, null, CancellationToken.None);
+        foreach (var (folder, name, data) in new[] { (@"Camera\2026", "clip-with-a-rather-long-name.mp4", big), ("", "small.bin", small) })
+        {
+            var f = deleted.SingleOrDefault(x => x.Folder == folder && x.Name == name);
+            Assert.True(f is not null, $"{name} listed; got [{string.Join(", ", deleted.Select(x => x.FullPath))}]");
+            Assert.Equal(Recoverability.Good, f!.Recoverability);
+            using var ms = new MemoryStream();
+            reader.Extract(f, ms, CancellationToken.None);
+            Assert.True(ms.ToArray().AsSpan().SequenceEqual(data), $"{name} content identical");
+        }
+    }
+
+    [Test]
+    public static async Task Vhdx_image_is_attached_read_only_for_recovery()
+    {
+        using var vd = await VirtualDisk.CreateAsync(1908, "convert gpt", "create partition primary size=60", "format fs=exfat quick label=LE-IMG");
+        var path = vd.File;
+        VirtualDisk.DiskPart($"select vdisk file=\"{path}\"", "detach vdisk");
+        Assert.Equal(DiskImageKind.NeedsAttach, DiskImages.Classify(path));
+        var before = SHA256.HashData(File.ReadAllBytes(path));
+        var mgr = new Lasteast.Storage.Windows.Info.WindowsVirtualDiskManager();
+        var device = mgr.AttachReadOnly(path);
+        try
+        {
+            int n = int.Parse(new string(device.Reverse().TakeWhile(char.IsDigit).Reverse().ToArray()));
+            var inv = await new WindowsStorageInventoryProvider().GetInventoryAsync();
+            var disk = inv.Disks.Single(d => d.Number == n);
+            var part = disk.Partitions.Single(p => p.SizeBytes == 60UL * 1024 * 1024);
+            using var dev = new PhysicalDiskDevice(disk, writable: false);
+            Assert.True(RecoveryReaders.Open(new OffsetDevice(dev, (long)part.OffsetBytes, (long)part.SizeBytes)) is ExfatRecoveryReader, "volume readable");
+        }
+        finally { mgr.Detach(path); }
+        Assert.True(before.AsSpan().SequenceEqual(SHA256.HashData(File.ReadAllBytes(path))), "image unchanged");
+    }
+
+    [Test]
     public static async Task Partition_deleted_with_diskpart_is_found_and_restored_through_the_engine()
     {
         var letter = FreeLetter();

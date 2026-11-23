@@ -9,9 +9,11 @@ public sealed class OffsetDevice : IBlockDevice
 {
     private readonly IBlockDevice _inner;
     private readonly long _offset;
+    private readonly bool _ownsInner;
 
-    public OffsetDevice(IBlockDevice inner, long offset, long length)
+    public OffsetDevice(IBlockDevice inner, long offset, long length, bool ownsInner = false)
     {
+        _ownsInner = ownsInner;
         if (offset < 0 || length <= 0 || offset + length > inner.Length) throw new ArgumentOutOfRangeException(nameof(length), "window outside the device");
         _inner = inner;
         _offset = offset;
@@ -29,7 +31,7 @@ public sealed class OffsetDevice : IBlockDevice
 
     public void Write(long offset, ReadOnlySpan<byte> buffer) => throw new InvalidOperationException("recovery sources are read-only");
     public void Flush() { }
-    public void Dispose() { }
+    public void Dispose() { if (_ownsInner) _inner.Dispose(); }
 }
 
 public enum Recoverability
@@ -73,13 +75,14 @@ public interface IRecoveryReader
 
 public static class RecoveryReaders
 {
-    /// <summary>Opens the right reader for the volume's boot sector, or null when it is not NTFS/FAT32.</summary>
+    /// <summary>Opens the right reader for the volume's boot sector, or null when it is not NTFS/FAT32/exFAT.</summary>
     public static IRecoveryReader? Open(IBlockDevice volume)
     {
         var bs = new byte[512];
         volume.Read(0, bs);
         if (bs.AsSpan(3, 8).SequenceEqual("NTFS    "u8)) return new NtfsRecoveryReader(volume);
         if (bs.AsSpan(82, 8).SequenceEqual("FAT32   "u8)) return new Fat32RecoveryReader(volume);
+        if (bs.AsSpan(3, 8).SequenceEqual("EXFAT   "u8)) return new ExfatRecoveryReader(volume);
         return null;
     }
 

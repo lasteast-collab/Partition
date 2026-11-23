@@ -74,8 +74,10 @@ Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not 
 | Recover files from a lost partition without restoring it | ✅ | "Browse files" on a found partition |
 | Destination on the source disk refused | ✅ | Resolved from mount points |
 | NTFS compressed / encrypted / attribute-list (very fragmented) files | ⏳ | Listed as not recoverable instead of producing wrong data |
-| exFAT file recovery, file carving by signature (photos, documents without metadata) | ⏳ | |
-| Recovery from a disk image file | ⏳ | The readers work on any block device; UI not built |
+| exFAT deleted-file recovery (entry sets with InUse cleared, NoFatChain and FAT-chain files, allocation-bitmap reuse check) | ✅ post-1.0 | Unit-tested on a hand-built image (fsck-clean) and on files deleted by Windows' exFAT driver (CI) |
+| File carving: JPEG, PNG, GIF, PDF, ZIP/DOCX/XLSX/PPTX/EPUB/ODT, MP4/MOV/3GP/M4A/HEIC | ✅ post-1.0 | Structural length parsing (JPEG segments, PNG CRC, GIF blocks, ZIP EOCD, MP4 boxes, PDF trailer); contiguous files only; original names cannot be recovered. Used automatically when the file system is unreadable |
+| Recovery from a disk image file | ✅ post-1.0 | Raw (.img/.dd/.raw/.bin) and fixed VHD read directly, partitions inside listed; VHDX / dynamic VHD attached read-only by Windows. Image never modified (tested) |
+| Fragmented carving (JPEG restart-marker reassembly, MP4 chunk tables) | ⏳ | Fragmented files are cut short or skipped rather than reported as complete |
 
 ## Phase 6 — OS migration
 
@@ -145,6 +147,7 @@ Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not 
 | Feature | Status | Notes |
 |---|---|---|
 | Operation model (create, delete, format, resize/extend/shrink, label, drive letter) | ✅ | Partitions addressed by offset, not number |
+| Partition attributes: set active (MBR), hide/unhide, change type (GPT/MBR), initialize disk (GPT/MBR) | ✅ post-1.0 | Active refused on the running Windows' disk; system types (ESP, MSR, LDM, Storage Spaces) not settable; integration-tested on VHDX |
 | Layout simulator + validation rules | ✅ | Protected partitions, alignment, overlap, MBR 4-primary & 2 TB, GPT 128, FAT32 32 GB, label limits, letter conflicts, shrink floor, adjacent-space extend |
 | Pending operation queue: add (validated), remove, undo last, clear, re-validate on refresh | ✅ | Invalid operations never enter the queue; stale ones block Apply |
 | Before / after disk maps per disk, data-loss and time summary | ✅ | Pending page |
