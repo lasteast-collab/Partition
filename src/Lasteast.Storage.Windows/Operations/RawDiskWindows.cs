@@ -468,12 +468,13 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
                 {
                     var backup = Lasteast.Core.Boot.TableBackups.Load(rt.BackupFolder, (int)liveDisk.BytesPerLogicalSector);
                     if ((ulong)backup.DiskSize != liveDisk.SizeBytes) throw new RawOperationException("Restore.Error.Size", "");
-                    using var locks = LockWhatCanBeLocked(liveDisk);
                     if (DriveLayoutWriter.Supports(backup))
                     {
+                        // Windows' own layout API: no volume locks (a locked volume makes Windows revert the new layout later)
                         DriveLayoutWriter.Apply(liveDisk, backup);
                         return;
                     }
+                    using var locks = LockWhatCanBeLocked(liveDisk);
                     using var dev = new PhysicalDiskDevice(liveDisk, writable: true);
                     Lasteast.Core.Boot.TableBackups.Apply(dev, backup);
                     dev.Rescan();
