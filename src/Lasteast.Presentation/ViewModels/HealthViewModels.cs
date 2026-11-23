@@ -63,7 +63,7 @@ public sealed class DiskHealthPageViewModel : PageViewModel
     public DiskHealthPageViewModel(IDiskHealthProvider? provider)
     {
         _provider = provider;
-        RefreshCommand = new AsyncRelayCommand(ReadAllAsync, ex => Status = ex.Message);
+        RefreshCommand = new AsyncRelayCommand(ReadAllAsync, ex => Status = ErrorText(ex));
     }
 
     public override string TitleKey => "Nav.DiskHealth";

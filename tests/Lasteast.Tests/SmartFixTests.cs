@@ -72,7 +72,7 @@ public static class SmartFixTests
         Assert.True(f.Any(x => x.Id == "temp" && x.Fix == FixKind.Navigate && x.NavigateTo == "Nav.Cleanup"));
         Assert.True(f.Any(x => x.Id == "recycle"));
         Assert.True(f.Any(x => x.Severity == SmartSeverity.Healthy && x.Id == "layout-ok"));
-        Assert.True(f.Any(x => x.Id == "health" && x.Fix == FixKind.Planned)); // stated, not guessed
+        Assert.True(f.Any(x => x.Id == "health" && x.Fix == FixKind.Navigate && x.NavigateTo == "Nav.DiskHealth"));
         // no duplicate offer for the gap after C:
         Assert.True(!f.Any(x => x.Id.StartsWith("unalloc-0-")));
         // ordered by severity
@@ -146,5 +146,19 @@ public static class SmartFixTests
         vm.SettingsPage.SelectedLanguage = Loc.Languages.First(l => l.Code == "he");
         Assert.Equal("עדיפות גבוהה", sf.Groups[0].Title);
         vm.SettingsPage.SelectedLanguage = Loc.Languages[0];
+    }
+}
+
+public static class VolumeProblemTests
+{
+    [Test]
+    public static void Unreadable_volume_advice_depends_on_the_windows_error()
+    {
+        Assert.Equal(VolumeProblem.NotRecognized, VolumeProblems.Classify(1005));
+        Assert.Equal(VolumeProblem.Locked, VolumeProblems.Classify(unchecked((int)0x80310000)));
+        Assert.Equal(VolumeProblem.NoMedia, VolumeProblems.Classify(21));
+        Assert.Equal(VolumeProblem.Damaged, VolumeProblems.Classify(1392));
+        Assert.Equal(VolumeProblem.ReadErrors, VolumeProblems.Classify(23));
+        Assert.Equal(VolumeProblem.Unknown, VolumeProblems.Classify(null));
     }
 }

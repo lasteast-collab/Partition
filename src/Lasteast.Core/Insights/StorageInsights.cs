@@ -41,8 +41,15 @@ public static class StorageInsights
                     list.Add(new Finding(d.Media == MediaKind.Ssd ? FindingSeverity.Recommended : FindingSeverity.Optional,
                         "Finding.Misaligned", new object[] { d.Number, p.PartitionNumber }, d.Number, p.PartitionNumber));
 
-                if (v?.AccessError is not null && v.DriveLetter is { } l2)
-                    list.Add(new Finding(FindingSeverity.Recommended, "Finding.VolumeUnreadable", new object[] { $"{l2}:" }, d.Number, p.PartitionNumber));
+                if (v?.AccessError is not null && v.DriveLetter is { } l2 && VolumeProblems.Classify(v.AccessErrorCode) is var vp && vp != VolumeProblem.NoMedia)
+                    list.Add(new Finding(vp is VolumeProblem.NotRecognized or VolumeProblem.ReadErrors ? FindingSeverity.Critical : FindingSeverity.Recommended,
+                        vp switch
+                        {
+                            VolumeProblem.NotRecognized => "Finding.VolumeRaw",
+                            VolumeProblem.Locked => "Finding.VolumeLocked",
+                            VolumeProblem.ReadErrors => "Finding.VolumeReadErrors",
+                            _ => "Finding.VolumeUnreadable",
+                        }, new object[] { $"{l2}:" }, d.Number, p.PartitionNumber));
             }
 
             DiskMapLayout.BuildSegments(d, out var problems);

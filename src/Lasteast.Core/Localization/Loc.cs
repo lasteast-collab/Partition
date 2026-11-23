@@ -53,6 +53,8 @@ public sealed class Loc : INotifyPropertyChanged
         _current.TryGetValue(key, out var v) ? v :
         _english.TryGetValue(key, out var e) ? e : $"[{key}]";
 
+    public bool Has(string key) => _english.ContainsKey(key);
+
     public string Format(string key, params object?[] args) => string.Format(Language.Culture, this[key], args);
 
     public void SetLanguage(string code)

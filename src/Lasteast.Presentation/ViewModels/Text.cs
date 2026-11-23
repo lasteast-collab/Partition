@@ -10,6 +10,10 @@ public static class Text
 {
     public static string L(string key) => Loc.Instance[key];
 
+    /// <summary>Message for an error from a command: localized for engine errors, Windows' text otherwise.</summary>
+    public static string ErrorText(Exception ex) =>
+        ex is Core.RawDisk.RawOperationException r && Loc.Instance.Has(r.Key) ? Loc.Instance.Format(r.Key, r.Message) : ex.Message;
+
     public static string Size(ulong bytes) =>
         ByteSize.Format(bytes, Loc.Instance.Language.Culture, u => Loc.Instance["Unit." + u]);
 

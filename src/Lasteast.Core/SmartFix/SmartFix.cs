@@ -262,18 +262,41 @@ public static class SmartFixAnalyzer
                         Id = $"align-{d.Number}-{p.OffsetBytes}", Severity = d.Media == MediaKind.Ssd ? SmartSeverity.Recommended : SmartSeverity.Optional,
                         Category = "Layout", TitleKey = "SF.Align.Title", TitleArgs = new object[] { d.Number, p.PartitionNumber },
                         ExplanationKey = "SF.Align.Explain", RecommendationKey = "SF.Align.Fix",
-                        Fix = FixKind.Planned, PlannedPhase = 5, Risk = FixRisk.Medium, BackupRecommended = true, DiskNumber = d.Number,
+                        Fix = FixKind.Navigate, NavigateTo = "Nav.AllPartitions", Risk = FixRisk.Medium, BackupRecommended = true, DiskNumber = d.Number,
                     });
                 }
 
                 if (v?.AccessError is not null && v.DriveLetter is { } ul)
-                    list.Add(new SmartFinding
+                {
+                    var problem = VolumeProblems.Classify(v.AccessErrorCode);
+                    // an empty card reader or DVD drive is not a problem
+                    if (problem != VolumeProblem.NoMedia)
                     {
-                        Id = $"unreadable-{d.Number}-{p.OffsetBytes}", Severity = SmartSeverity.High, Category = "FileSystem",
-                        TitleKey = "SF.Unreadable.Title", TitleArgs = new object[] { $"{ul}:" },
-                        ExplanationKey = "SF.Unreadable.Explain", RecommendationKey = "SF.Unreadable.Fix",
-                        Fix = FixKind.Guidance, Risk = FixRisk.Low, DiskNumber = d.Number,
-                    });
+                        var (titleKey, explainKey, fixKey) = problem switch
+                        {
+                            VolumeProblem.NotRecognized => ("SF.Raw.Title", "SF.Raw.Explain", "SF.Raw.Fix"),
+                            VolumeProblem.Damaged => ("SF.Damaged.Title", "SF.Damaged.Explain", "SF.Damaged.Fix"),
+                            VolumeProblem.Locked => ("SF.Locked.Title", "SF.Locked.Explain", "SF.Locked.Fix"),
+                            VolumeProblem.ReadErrors => ("SF.ReadErrors.Title", "SF.ReadErrors.Explain", "SF.ReadErrors.Fix"),
+                            _ => ("SF.Unreadable.Title", "SF.Unreadable.Explain", "SF.Unreadable.Fix"),
+                        };
+                        list.Add(new SmartFinding
+                        {
+                            Id = $"unreadable-{d.Number}-{p.OffsetBytes}",
+                            Severity = problem is VolumeProblem.ReadErrors ? SmartSeverity.Critical : problem is VolumeProblem.Locked ? SmartSeverity.Recommended : SmartSeverity.High,
+                            Category = "FileSystem", TitleKey = titleKey, TitleArgs = new object[] { $"{ul}:", d.Number },
+                            ExplanationKey = explainKey, RecommendationKey = fixKey, RecommendationArgs = new object[] { $"{ul}:" },
+                            Fix = problem switch
+                            {
+                                VolumeProblem.NotRecognized => FixKind.Navigate,
+                                VolumeProblem.ReadErrors => FixKind.Navigate,
+                                _ => FixKind.Guidance,
+                            },
+                            NavigateTo = problem == VolumeProblem.ReadErrors ? "Nav.DiskHealth" : "Nav.PartitionRecovery",
+                            Risk = FixRisk.Low, BackupRecommended = problem is VolumeProblem.Damaged or VolumeProblem.ReadErrors, DiskNumber = d.Number,
+                        });
+                    }
+                }
             }
 
             // Unallocated space: offer to extend the NTFS/ReFS data partition just before it, else create a partition.
@@ -326,7 +349,7 @@ public static class SmartFixAnalyzer
                     Id = $"mbr2tb-{d.Number}", Severity = SmartSeverity.Recommended, Category = "Layout",
                     TitleKey = "SF.Mbr2TB.Title", TitleArgs = new object[] { d.Number, d.SizeBytes - LayoutSimulator.Mbr2TiB },
                     ExplanationKey = "SF.Mbr2TB.Explain", RecommendationKey = "SF.Mbr2TB.Fix",
-                    Fix = FixKind.Planned, PlannedPhase = 5, Risk = FixRisk.Medium, BackupRecommended = true, DiskNumber = d.Number,
+                    Fix = FixKind.Navigate, NavigateTo = "Nav.DiskConversion", Risk = FixRisk.Medium, BackupRecommended = true, DiskNumber = d.Number,
                 });
 
             if (d.Media == MediaKind.Ssd && d.TrimEnabled == false)
@@ -357,7 +380,7 @@ public static class SmartFixAnalyzer
                 {
                     Id = "esp-missing", Severity = SmartSeverity.High, Category = "Boot",
                     TitleKey = "SF.EspMissing.Title", ExplanationKey = "SF.EspMissing.Explain", RecommendationKey = "SF.EspMissing.Fix",
-                    Fix = FixKind.Planned, PlannedPhase = 8, Risk = FixRisk.High, BackupRecommended = true,
+                    Fix = FixKind.Navigate, NavigateTo = "Nav.BootRecovery", Risk = FixRisk.High, BackupRecommended = true,
                 });
             else if (inv.Firmware == FirmwareKind.Uefi)
                 list.Add(Healthy("esp-ok", "Boot", "SF.EspOk.Title"));
@@ -367,7 +390,7 @@ public static class SmartFixAnalyzer
                 {
                     Id = "recovery-missing", Severity = SmartSeverity.Optional, Category = "Boot",
                     TitleKey = "SF.NoRecovery.Title", ExplanationKey = "SF.NoRecovery.Explain", RecommendationKey = "SF.NoRecovery.Fix",
-                    Fix = FixKind.Planned, PlannedPhase = 8, Risk = FixRisk.None,
+                    Fix = FixKind.Navigate, NavigateTo = "Nav.BootRecovery", Risk = FixRisk.None,
                 });
             else
                 list.Add(Healthy("recovery-ok", "Boot", "SF.RecoveryOk.Title"));
@@ -403,11 +426,12 @@ public static class SmartFixAnalyzer
                 Fix = FixKind.Guidance, Risk = FixRisk.Low,
             });
 
-        // ---------------- not measured yet (stated, not guessed)
+        // ---------------- health is read on its own page (reported values only, never guessed)
         list.Add(new SmartFinding
         {
             Id = "health", Severity = SmartSeverity.Optional, Category = "Health",
-            TitleKey = "SF.Health.Title", ExplanationKey = "SF.Health.Explain", Fix = FixKind.Planned, PlannedPhase = 9,
+            TitleKey = "SF.Health.Title", ExplanationKey = "SF.Health.Explain", RecommendationKey = "SF.Health.Fix",
+            Fix = FixKind.Navigate, NavigateTo = "Nav.DiskHealth", Risk = FixRisk.None,
         });
 
         // ---------------- healthy summary

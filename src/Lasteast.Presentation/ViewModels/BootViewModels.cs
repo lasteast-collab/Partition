@@ -232,7 +232,7 @@ public sealed class BackupPageViewModel : PageViewModel
         if (Directory.Exists(downloads)) Sources.Add(new BackupSourceViewModel(downloads, false));
         AddFolderCommand = new RelayCommand(() => { if (_shell.PickFolder() is { } f && Sources.All(s => s.Path != f)) Sources.Add(new BackupSourceViewModel(f, true)); });
         DestinationCommand = new RelayCommand(() => { if (_shell.PickFolder() is { } f) Destination = f; });
-        RunCommand = new AsyncRelayCommand(RunAsync, ex => { Status = ex.Message; Busy = false; });
+        RunCommand = new AsyncRelayCommand(RunAsync, ex => { Status = ErrorText(ex); Busy = false; });
         CancelCommand = new RelayCommand(() => _cts?.Cancel());
     }
 

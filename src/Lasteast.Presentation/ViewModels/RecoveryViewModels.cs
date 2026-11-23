@@ -58,7 +58,7 @@ public sealed class PartitionRecoveryPageViewModel : PageViewModel
         _reader = reader;
         _openPending = openPending;
         _browse = browse;
-        ScanCommand = new AsyncRelayCommand(ScanAsync, ex => { Status = ex.Message; Scanning = false; });
+        ScanCommand = new AsyncRelayCommand(ScanAsync, ex => { Status = ErrorText(ex); Scanning = false; });
         CancelCommand = new RelayCommand(() => _cts?.Cancel());
     }
 
@@ -170,9 +170,9 @@ public sealed class FileRecoveryPageViewModel : PageViewModel
         _shell = shell;
         _vd = virtualDisks;
         _refresh = refresh;
-        OpenImageCommand = new AsyncRelayCommand(OpenImageAsync, ex => { Status = ex.Message; Busy = false; });
-        ScanCommand = new AsyncRelayCommand(ScanAsync, ex => { Status = ex.Message; Busy = false; });
-        RecoverCommand = new AsyncRelayCommand(RecoverAsync, ex => { Status = ex.Message; Busy = false; });
+        OpenImageCommand = new AsyncRelayCommand(OpenImageAsync, ex => { Status = ErrorText(ex); Busy = false; });
+        ScanCommand = new AsyncRelayCommand(ScanAsync, ex => { Status = ErrorText(ex); Busy = false; });
+        RecoverCommand = new AsyncRelayCommand(RecoverAsync, ex => { Status = ErrorText(ex); Busy = false; });
         CancelCommand = new RelayCommand(() => _cts?.Cancel());
         BrowseDestinationCommand = new RelayCommand(() => { if (_shell.PickFolder() is { } f) Destination = f; });
         SelectAllCommand = new RelayCommand(() => { foreach (var f in Files) f.IsSelected = true; });

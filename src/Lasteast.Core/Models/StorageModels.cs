@@ -102,6 +102,8 @@ public sealed record VolumeInfo
     public bool IsReadOnly { get; init; }
     /// <summary>Set when the volume exists but could not be queried (no media, locked, unsupported FS…).</summary>
     public string? AccessError { get; init; }
+    /// <summary>Windows error code behind <see cref="AccessError"/> (see <see cref="VolumeProblems.Classify"/>).</summary>
+    public int? AccessErrorCode { get; init; }
 
     public ulong? UsedBytes => CapacityBytes is { } c && FreeBytes is { } f && c >= f ? c - f : null;
 }
@@ -198,4 +200,20 @@ public sealed record StorageInventory
     /// <summary>Volumes that could not be mapped to a physical disk (e.g. network-backed, spanned).</summary>
     public IReadOnlyList<VolumeInfo> UnmappedVolumes { get; init; } = Array.Empty<VolumeInfo>();
     public IReadOnlyList<string> Notes { get; init; } = Array.Empty<string>();
+}
+
+/// <summary>Why a volume cannot be read — decides what advice is correct (chkdsk cannot repair a RAW volume, for instance).</summary>
+public enum VolumeProblem { Unknown, NotRecognized, Damaged, Locked, NoMedia, ReadErrors }
+
+public static class VolumeProblems
+{
+    public static VolumeProblem Classify(int? code) => code switch
+    {
+        1005 => VolumeProblem.NotRecognized,                 // ERROR_UNRECOGNIZED_VOLUME: RAW
+        1392 or 1393 => VolumeProblem.Damaged,               // ERROR_FILE_CORRUPT, ERROR_DISK_CORRUPT
+        unchecked((int)0x80310000) => VolumeProblem.Locked,  // FVE_E_LOCKED_VOLUME (BitLocker)
+        21 or 1112 => VolumeProblem.NoMedia,                 // ERROR_NOT_READY, ERROR_NO_MEDIA_IN_DRIVE
+        23 or 483 or 1117 => VolumeProblem.ReadErrors,       // ERROR_CRC, ERROR_DEVICE_HARDWARE_ERROR, ERROR_IO_DEVICE
+        _ => VolumeProblem.Unknown,
+    };
 }

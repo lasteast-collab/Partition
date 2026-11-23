@@ -185,6 +185,7 @@ public sealed class WindowsStorageInventoryProvider : IStorageInventoryProvider
                              .FirstOrDefault(c => c is not null);
 
         string? label = null, fs = null, error = null;
+        int? errorCode = null;
         bool readOnly = false;
         var lb = new StringBuilder(261);
         var fb = new StringBuilder(261);
@@ -197,7 +198,9 @@ public sealed class WindowsStorageInventoryProvider : IStorageInventoryProvider
         else
         {
             // RAW, locked BitLocker volume, no media, or unknown file system.
-            error = LastError("GetVolumeInformation").Message;
+            var ex = LastError("GetVolumeInformation");
+            error = ex.Message;
+            errorCode = ex.NativeErrorCode;
         }
 
         ulong? capacity = null, free = null;
@@ -242,6 +245,7 @@ public sealed class WindowsStorageInventoryProvider : IStorageInventoryProvider
             IsWindowsVolume = windowsVolume is not null && string.Equals(windowsVolume, guidPath, StringComparison.OrdinalIgnoreCase),
             IsSystemPartitionVolume = isSystemPartition,
             AccessError = error,
+            AccessErrorCode = errorCode,
         };
         return new VolumeRecord(info, extents);
     }

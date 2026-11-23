@@ -179,7 +179,7 @@ public sealed class TechnicianPageViewModel : PageViewModel
         _shell = shell;
         _health = health;
         _edition = edition;
-        LoadCommand = new AsyncRelayCommand(LoadAsync, ex => Status = ex.Message);
+        LoadCommand = new AsyncRelayCommand(LoadAsync, ex => Status = ErrorText(ex));
         ExportHtmlCommand = new RelayCommand(() => Export("html"));
         ExportCsvCommand = new RelayCommand(() => Export("csv"));
         ExportJsonCommand = new RelayCommand(() => Export("json"));
@@ -268,7 +268,7 @@ public sealed class AssistantPageViewModel : PageViewModel
             if (IntentMatcher.Match(_request) is { } g) Show(g);
             else Status = L(_llm() is null ? "Asst.NotUnderstood" : "Asst.NotUnderstoodAi");
         });
-        AskAiCommand = new AsyncRelayCommand(AskAiAsync, ex => Status = ex.Message);
+        AskAiCommand = new AsyncRelayCommand(AskAiAsync, ex => Status = ErrorText(ex));
         QueueCommand = new RelayCommand(() =>
         {
             if (_plan is null) return;

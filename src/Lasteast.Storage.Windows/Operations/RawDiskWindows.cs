@@ -31,7 +31,12 @@ internal static class RawNative
         var h = NativeMethods.CreateFile(path, write ? GENERIC_READ | GENERIC_WRITE : GENERIC_READ,
             NativeMethods.FILE_SHARE_READ | NativeMethods.FILE_SHARE_WRITE, IntPtr.Zero, NativeMethods.OPEN_EXISTING,
             writeThrough ? FILE_FLAG_WRITE_THROUGH : NativeMethods.FILE_ATTRIBUTE_NORMAL, IntPtr.Zero);
-        if (h.IsInvalid) throw new RawOperationException("Raw.Error.Open", NativeMethods.LastError("open " + path).Message);
+        if (h.IsInvalid)
+        {
+            var err = NativeMethods.LastError("open " + path);
+            // raw disk access needs administrator rights; say so instead of showing "Access is denied"
+            throw new RawOperationException(err.NativeErrorCode == 5 ? "Raw.Error.NeedsAdmin" : "Raw.Error.Open", err.Message);
+        }
         return h;
     }
 
