@@ -53,7 +53,10 @@ public partial class App : Application
         var vm = new MainViewModel(provider, privileges, settings, store, theme, new ShellService(), _log,
             FileLog.DefaultDirectory, e.Args, engine, demo ? null : new WindowsSystemProbe(_log),
             new RecycleBinRemover(), demo ? Array.Empty<Lasteast.Core.Cleanup.CleanupTarget>() : Lasteast.Core.Cleanup.CleanupService.WindowsTargets(),
-            demo ? null : d => new Lasteast.Storage.Windows.Operations.PhysicalDiskDevice(d, writable: false));
+            demo ? null : d => new Lasteast.Storage.Windows.Operations.PhysicalDiskDevice(d, writable: false),
+            demo ? null : new Lasteast.Storage.Windows.Operations.WindowsBootTools(_log),
+            demo ? null : new Lasteast.Storage.Windows.Operations.WinPeRescueMediaBuilder(),
+            Lasteast.Storage.Windows.Operations.PartitionTableBackupService.DefaultRoot);
         var window = new MainWindow(vm, theme);
         vm.RequestShutdown += (_, _) => Shutdown();
         MainWindow = window;

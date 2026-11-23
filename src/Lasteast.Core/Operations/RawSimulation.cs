@@ -199,4 +199,34 @@ public static partial class LayoutSimulator
         };
         return d with { Style = style, Partitions = d.Partitions.Append(created).OrderBy(p => p.OffsetBytes).ToList() };
     }
+
+    private static DiskInfo ApplyRestore(DiskInfo d, RestoreTableOp r, List<ValidationIssue> issues)
+    {
+        if (d.SizeBytes != r.BackupDiskSize) return Fail(issues, "Restore.Error.Size", d);
+        if (!string.IsNullOrEmpty(r.Serial) && !string.IsNullOrEmpty(d.SerialNumber) && r.Serial != d.SerialNumber) return Fail(issues, "Restore.Error.OtherDisk", d);
+        if (!string.IsNullOrEmpty(r.Model) && !string.IsNullOrEmpty(d.Model) && r.Model != d.Model) return Fail(issues, "Restore.Error.OtherDisk", d);
+        if (d.IsWindowsDisk && Real(d).Any(p => p.Volume?.IsWindowsVolume == true && !r.Partitions.Any(x => x.Offset == p.OffsetBytes && x.Size == p.SizeBytes)))
+            return Fail(issues, "Restore.Error.WindowsChanged", d);
+        var current = Real(d).ToList();
+        if (current.Count == r.Partitions.Count && current.All(p => r.Partitions.Contains((p.OffsetBytes, p.SizeBytes))) && d.Style == r.Style)
+            return Fail(issues, "Op.Error.NoChange", d);
+        foreach (var p in current.Where(p => !r.Partitions.Contains((p.OffsetBytes, p.SizeBytes))))
+            Warn(issues, "Restore.Warn.Removed", p.OffsetBytes, p.SizeBytes);
+        Warn(issues, "Restore.Warn.TableOnly");
+        var parts = r.Partitions.Select((x, i) =>
+            current.FirstOrDefault(p => p.OffsetBytes == x.Offset && p.SizeBytes == x.Size) ?? new PartitionInfo
+            {
+                DiskNumber = d.Number, PartitionNumber = i + 1, OffsetBytes = x.Offset, SizeBytes = x.Size, Style = r.Style,
+                Role = PartitionRole.BasicData, IsPending = true, Alignment = PartitionTypes.GetAlignment(x.Offset, d.BytesPerPhysicalSector),
+            }).ToList();
+        return d with { Style = r.Style, Partitions = parts };
+    }
+
+    private static DiskInfo ApplyRepairBoot(DiskInfo d, RepairBootOp r, List<ValidationIssue> issues)
+    {
+        if (!d.IsWindowsDisk) return Fail(issues, "Boot.Error.NotWindowsDisk", d);
+        if (d.Style == PartitionStyle.Gpt && !Real(d).Any(p => p.Role == PartitionRole.EfiSystem)) return Fail(issues, "Boot.Error.NoEsp", d);
+        Warn(issues, "Boot.Warn.RepairRunning");
+        return d;
+    }
 }

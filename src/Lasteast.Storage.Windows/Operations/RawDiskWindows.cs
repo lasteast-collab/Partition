@@ -418,10 +418,12 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
     private readonly RawDiskExecutor _raw;
     private readonly IStorageInventoryProvider _inventory;
     private readonly BootPreparer _boot;
+    private readonly IAppLog _log;
 
     public WindowsOperationExecutor(IStorageInventoryProvider inventory, IAppLog? log = null, string? journalDir = null)
     {
         _inventory = inventory;
+        _log = log ?? NullLog.Instance;
         _boot = new BootPreparer(log);
         _raw = new RawDiskExecutor(inventory, log, journalDir);
     }
@@ -459,6 +461,20 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
                     dev.Rescan();
                 });
                 await Task.Delay(2000, CancellationToken.None);
+                break;
+            case Lasteast.Core.Operations.RestoreTableOp rt:
+                await Raw(() =>
+                {
+                    var backup = Lasteast.Core.Boot.TableBackups.Load(rt.BackupFolder, (int)liveDisk.BytesPerLogicalSector);
+                    using var dev = new PhysicalDiskDevice(liveDisk, writable: true);
+                    Lasteast.Core.Boot.TableBackups.Apply(dev, backup);
+                    dev.Rescan();
+                });
+                await Task.Delay(2000, CancellationToken.None);
+                break;
+            case Lasteast.Core.Operations.RepairBootOp:
+                await Task.Run(() => new WindowsBootTools(_log).Repair(Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasteast", "Partition", "bcd")));
                 break;
             case Lasteast.Core.Operations.PrepareBootOp b:
                 await Task.Run(() => _boot.Prepare(liveDisk, b));

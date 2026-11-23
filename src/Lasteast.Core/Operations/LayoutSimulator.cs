@@ -68,6 +68,8 @@ public static partial class LayoutSimulator
         // A clone replaces the whole destination, which may be blank (no partition table yet).
         if (op is CloneDiskOp clone) return ApplyClone(d, clone, otherDisk, issues);
         if (op is RecoverPartitionOp recover) return ApplyRecover(d, recover, issues);
+        if (op is RestoreTableOp restore) return ApplyRestore(d, restore, issues);
+        if (op is RepairBootOp repair) return ApplyRepairBoot(d, repair, issues);
 
         // ---- disk-level gates
         if (d.Style is not (PartitionStyle.Gpt or PartitionStyle.Mbr)) return Fail(issues, "Op.Error.DiskStyle", d, d.Number);

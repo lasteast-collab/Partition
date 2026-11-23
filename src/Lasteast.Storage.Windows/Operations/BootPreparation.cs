@@ -133,7 +133,7 @@ public sealed class BootPreparer
         throw new OperationFailedException("Boot.Error.NoLetter");
     }
 
-    public void Prepare(DiskInfo disk, PrepareBootOp op)
+    public void Prepare(DiskInfo disk, PrepareBootOp op, string? backupFolder = null)
     {
         var parts = disk.Partitions.Where(p => p.Role != PartitionRole.MbrExtended).ToList();
         var system = disk.Style == PartitionStyle.Gpt
@@ -174,6 +174,17 @@ public sealed class BootPreparer
             else windowsDir = op.WindowsDirectoryOverride!;
 
             var firmware = disk.Style == PartitionStyle.Gpt ? "UEFI" : "BIOS";
+            if (backupFolder is not null)
+            {
+                // keep the existing boot files before bcdboot replaces them
+                foreach (var dir in new[] { s + @"EFI\Microsoft\Boot", s + "Boot" }.Where(Directory.Exists))
+                foreach (var f in Directory.EnumerateFiles(dir, "BCD*", SearchOption.TopDirectoryOnly))
+                {
+                    var target = Path.Combine(backupFolder, Path.GetRelativePath(s, f));
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    File.Copy(f, target, overwrite: false);
+                }
+            }
             var (code, output) = Run("bcdboot.exe", $"\"{windowsDir}\" /s {s.TrimEnd('\\')} /f {firmware}");
             _log.Info($"bcdboot exit {code}: {output}");
             if (code != 0) throw new OperationFailedException("Boot.Error.Bcdboot", output.Trim());

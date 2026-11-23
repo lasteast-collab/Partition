@@ -64,7 +64,8 @@ public sealed class MainViewModel : ObservableObject
         JsonSettingsStore store, IThemeService theme, IShellService shell, IAppLog log, string logDirectory,
         string[] args, GuardedExecutionEngine? engine = null, Core.SmartFix.ISystemProbe? systemProbe = null,
         Core.Cleanup.IFileRemover? remover = null, IReadOnlyList<Core.Cleanup.CleanupTarget>? cleanupTargets = null,
-        DiskReader? diskReader = null)
+        DiskReader? diskReader = null, Core.Boot.IBootTools? bootTools = null, Core.Boot.IRescueMediaBuilder? rescueBuilder = null,
+        string? tableBackupRoot = null)
     {
         _provider = provider;
         _privileges = privileges;
@@ -98,6 +99,11 @@ public sealed class MainViewModel : ObservableObject
         ConversionPage = new ConversionPageViewModel(Queue, () => SelectedNav = PendingNav);
         MigrationPage = new OsMigrationPageViewModel(Queue, () => SelectedNav = PendingNav);
         FileRecoveryPage = new FileRecoveryPageViewModel(diskReader, shell);
+        BootPage = new BootRecoveryPageViewModel(bootTools ?? new NullBootTools(), rescueBuilder ?? new NullRescueMediaBuilder(), Queue, shell,
+            tableBackupRoot ?? Path.Combine(Path.GetTempPath(), "lasteast-none"), () => SelectedNav = PendingNav);
+        BackupPage = new BackupPageViewModel(shell);
+        NavItem? backupNav = null;
+        AccountPage = new AccountRecoveryPageViewModel(shell, () => SelectedNav = backupNav!);
         NavItem? fileRecoveryNav = null;
         PartitionRecoveryPage = new PartitionRecoveryPageViewModel(Queue, diskReader, () => SelectedNav = PendingNav,
             src => { FileRecoveryPage.Show(src); SelectedNav = fileRecoveryNav!; });
@@ -116,7 +122,9 @@ public sealed class MainViewModel : ObservableObject
             new NavGroup("NavGroup.Recover",
                 new NavItem("Nav.PartitionRecovery", "\uE81C", PartitionRecoveryPage),
                 fileRecoveryNav = new NavItem("Nav.FileRecovery", "\uE8E5", FileRecoveryPage),
-                Planned("Nav.BootRecovery", "\uE7E8", 8)),
+                new NavItem("Nav.BootRecovery", "\uE7E8", BootPage),
+                new NavItem("Nav.AccountRecovery", "\uE8D7", AccountPage),
+                backupNav = new NavItem("Nav.Backup", "\uE8F7", BackupPage)),
             new NavGroup("NavGroup.Analyze",
                 new NavItem("Nav.StorageAnalyzer", "\uE9D9", AnalyzerPage),
                 new NavItem("Nav.Cleanup", "\uEA99", CleanupPage),
@@ -186,6 +194,9 @@ public sealed class MainViewModel : ObservableObject
     public OsMigrationPageViewModel MigrationPage { get; }
     public PartitionRecoveryPageViewModel PartitionRecoveryPage { get; }
     public FileRecoveryPageViewModel FileRecoveryPage { get; }
+    public BootRecoveryPageViewModel BootPage { get; }
+    public AccountRecoveryPageViewModel AccountPage { get; }
+    public BackupPageViewModel BackupPage { get; }
     public OperationQueue Queue { get; }
     public PendingPageViewModel PendingPage { get; }
     public NavItem PendingNav { get; } = null!;
@@ -271,6 +282,9 @@ public sealed class MainViewModel : ObservableObject
         MigrationPage.Refresh(state);
         PartitionRecoveryPage.Refresh(state);
         FileRecoveryPage.Refresh(state);
+        BootPage.Refresh(state);
+        AccountPage.Refresh(state);
+        BackupPage.Refresh(state);
         SettingsPage.Refresh(state);
         foreach (var g in NavGroups)
         foreach (var i in g.Items)

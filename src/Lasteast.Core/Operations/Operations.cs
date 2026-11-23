@@ -2,7 +2,7 @@ using Lasteast.Core.Models;
 
 namespace Lasteast.Core.Operations;
 
-public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition }
+public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition, RestoreTable, RepairBoot }
 
 /// <summary>
 /// A planned change to one disk. Operations are pure data: they describe intent and are only
@@ -111,6 +111,25 @@ public sealed record RecoverPartitionOp(int DiskNumber, ulong OffsetBytes, ulong
 {
     public override OperationKind Kind => OperationKind.RecoverPartition;
     public override int EstimatedSeconds => 3;
+}
+
+/// <summary>Writes back the partition-table structures from a Lasteast backup (MBR/EBR sectors, GPT headers and entries).</summary>
+public sealed record RestoreTableOp(int DiskNumber, string BackupFolder, ulong BackupDiskSize, string? Serial, string? Model, PartitionStyle Style,
+    IReadOnlyList<(ulong Offset, ulong Size)> Partitions, DateTimeOffset Created) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.RestoreTable;
+    public override int EstimatedSeconds => 3;
+    public override bool DestroysData => true; // partitions created since the backup disappear from the table
+}
+
+/// <summary>
+/// Rebuilds the boot files of the running Windows (bcdboot %SystemRoot%) after exporting the current BCD store.
+/// Custom boot entries (dual boot) are replaced by the default ones; the export keeps them restorable.
+/// </summary>
+public sealed record RepairBootOp(int DiskNumber) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.RepairBoot;
+    public override int EstimatedSeconds => 15;
 }
 
 public enum IssueLevel { Error, Warning }

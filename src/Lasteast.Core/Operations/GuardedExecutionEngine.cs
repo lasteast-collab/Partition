@@ -197,7 +197,7 @@ public sealed class GuardedExecutionEngine
             catch (Exception ex) { return FailStep(i, op, sw.Elapsed, "Exec.Error.Inventory", ex.Message); }
 
             var after = live.Disks.FirstOrDefault(d => d.Number == op.DiskNumber);
-            bool rewritesTable = op is ConvertStyleOp or CloneDiskOp or RecoverPartitionOp;
+            bool rewritesTable = op is ConvertStyleOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp;
             if (after is null || (rewritesTable
                     ? DiskFingerprint.Hardware(after) != DiskFingerprint.Hardware(disk)
                     : DiskFingerprint.Identity(after) != DiskFingerprint.Identity(disk)))
@@ -292,6 +292,13 @@ public sealed class GuardedExecutionEngine
                 var orig = expected.Partitions.First(x => x.OffsetBytes == m.NewOffsetBytes);
                 if (p.SizeBytes != orig.SizeBytes) return $"moved partition size {p.SizeBytes} != {orig.SizeBytes}";
                 break;
+            }
+            case RestoreTableOp rt:
+            {
+                var got = Real(actual).Select(p => (p.OffsetBytes, p.SizeBytes)).OrderBy(x => x.OffsetBytes).ToList();
+                var want = rt.Partitions.OrderBy(x => x.Offset).ToList();
+                if (!got.SequenceEqual(want)) return $"layout after restore differs: {got.Count} partitions, expected {want.Count}";
+                return null;
             }
             case RecoverPartitionOp rp:
             {

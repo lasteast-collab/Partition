@@ -29,6 +29,9 @@
         <DataTemplate DataType="{x:Type vm:OsMigrationPageViewModel}"><views:OsMigrationView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:PartitionRecoveryPageViewModel}"><views:PartitionRecoveryView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:FileRecoveryPageViewModel}"><views:FileRecoveryView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:BootRecoveryPageViewModel}"><views:BootRecoveryView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:AccountRecoveryPageViewModel}"><views:AccountRecoveryView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:BackupPageViewModel}"><views:BackupView /></DataTemplate>
 
         <!-- Sidebar item -->
         <DataTemplate x:Key="NavItemTemplate" DataType="{x:Type vm:NavItem}">
