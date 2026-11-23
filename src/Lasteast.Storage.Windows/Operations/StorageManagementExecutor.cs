@@ -23,6 +23,19 @@ public sealed class StorageManagementExecutor : IOperationExecutor
     public Task ExecuteAsync(DiskOperation operation, DiskInfo liveDisk, CancellationToken cancellationToken)
         => Task.Run(() => Execute(operation, liveDisk));
 
+    /// <summary>Runs one step of a WMI conversation; any failure is reported with the step name and HRESULT.</summary>
+    private static T Step<T>(string label, Func<T> f)
+    {
+        try { return f(); }
+        catch (OperationFailedException) { throw; }
+        catch (Exception ex)
+        {
+            throw new OperationFailedException("Exec.Error.Wmi", $"{label}: {ex.GetType().Name} 0x{ex.HResult:X8} {ex.Message}");
+        }
+    }
+
+    private static void Step(string label, Action a) => Step<object?>(label, () => { a(); return null; });
+
     private void Execute(DiskOperation op, DiskInfo disk)
     {
         dynamic svc = Connect();
@@ -131,11 +144,11 @@ public sealed class StorageManagementExecutor : IOperationExecutor
         catch (COMException ex) { throw new OperationFailedException("Exec.Error.Wmi", ex.Message); }
     }
 
-    private static dynamic? QueryFirst(dynamic svc, string wql)
+    private static dynamic? QueryFirst(dynamic svc, string wql) => Step<dynamic?>("query " + wql, () =>
     {
         dynamic set = svc.ExecQuery(wql);
         return (int)set.Count > 0 ? set.ItemIndex(0) : null;
-    }
+    });
 
     private static dynamic PartitionAt(dynamic svc, DiskInfo disk, ulong offset)
         => QueryFirst(svc, $"SELECT * FROM MSFT_Partition WHERE DiskNumber = {disk.Number} AND Offset = {offset}")
@@ -150,7 +163,7 @@ public sealed class StorageManagementExecutor : IOperationExecutor
 
     private static string? FirstVolumePath(dynamic partition)
     {
-        object? paths = partition.AccessPaths;
+        object? paths = Step<object?>("AccessPaths", () => (object?)partition.AccessPaths);
         if (paths is not object[] arr) return null;
         return arr.OfType<string>().FirstOrDefault(s => s.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase));
     }
@@ -163,18 +176,21 @@ public sealed class StorageManagementExecutor : IOperationExecutor
     private static dynamic Invoke(dynamic obj, string method, Dictionary<string, object?> args)
     {
         dynamic? inParams = null;
-        dynamic def = obj.Methods_.Item(method);
-        if (def.InParameters is not null)
+        dynamic def = Step<dynamic>($"{method}: method definition", () => obj.Methods_.Item(method));
+        dynamic? inDef = Step<dynamic?>($"{method}: in-parameters", () => def.InParameters);
+        if (inDef is not null)
         {
-            inParams = def.InParameters.SpawnInstance_();
+            inParams = Step<dynamic>($"{method}: spawn", () => inDef.SpawnInstance_());
             foreach (var (k, v) in args)
-                if (v is not null) inParams.Properties_.Item(k).Value = v;
+                if (v is not null)
+                {
+                    var key = k; var value = v;
+                    Step($"{method}: set {key}={value}", () => { inParams.Properties_.Item(key).Value = value; });
+                }
         }
-        dynamic outParams;
-        try { outParams = inParams is null ? obj.ExecMethod_(method) : obj.ExecMethod_(method, inParams); }
-        catch (COMException ex) { throw new OperationFailedException("Exec.Error.Wmi", $"{method}: {ex.Message}"); }
+        dynamic outParams = Step<dynamic>($"{method}: execute", () => inParams is null ? obj.ExecMethod_(method) : obj.ExecMethod_(method, inParams));
 
-        uint rv = Convert.ToUInt32(outParams.Properties_.Item("ReturnValue").Value);
+        uint rv = Step($"{method}: return value", () => Convert.ToUInt32(outParams.Properties_.Item("ReturnValue").Value));
         if (rv != 0)
         {
             string? message = null;
