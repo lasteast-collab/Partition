@@ -192,17 +192,25 @@ public sealed class GuardedExecutionEngine
                 return Finish(false, key, detail, i + 1);
             }
 
-            // Re-read and verify before doing anything else.
-            try { live = await _inventory.GetInventoryAsync(CancellationToken.None); }
-            catch (Exception ex) { return FailStep(i, op, sw.Elapsed, "Exec.Error.Inventory", ex.Message); }
-
-            var after = live.Disks.FirstOrDefault(d => d.Number == op.DiskNumber);
+            // Re-read and verify before doing anything else. After raw table writes Windows publishes the new layout
+            // asynchronously, so those are re-read a few times before a mismatch counts.
+            bool raw = op is ConvertStyleOp or MovePartitionOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp;
+            DiskInfo? after = null;
+            string? mismatch = null;
+            for (int attempt = 0; ; attempt++)
+            {
+                try { live = await _inventory.GetInventoryAsync(CancellationToken.None); }
+                catch (Exception ex) { return FailStep(i, op, sw.Elapsed, "Exec.Error.Inventory", ex.Message); }
+                after = live.Disks.FirstOrDefault(d => d.Number == op.DiskNumber);
+                mismatch = after is null ? "disk missing" : Verify(op, expected.After, after);
+                if (mismatch is null || !raw || attempt >= 5) break;
+                await Task.Delay(1000, CancellationToken.None);
+            }
             bool rewritesTable = op is ConvertStyleOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp;
             if (after is null || (rewritesTable
                     ? DiskFingerprint.Hardware(after) != DiskFingerprint.Hardware(disk)
                     : DiskFingerprint.Identity(after) != DiskFingerprint.Identity(disk)))
                 return FailStep(i, op, sw.Elapsed, "Exec.Error.DiskChanged", null);
-            var mismatch = Verify(op, expected.After, after);
             if (mismatch is not null) return FailStep(i, op, sw.Elapsed, "Exec.Error.Verify", mismatch);
 
             outcomes[i] = outcomes[i] with { State = StepState.Succeeded, Duration = sw.Elapsed };

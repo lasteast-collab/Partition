@@ -230,9 +230,15 @@ public static partial class LayoutSimulator
         return d;
     }
 
+    /// <summary>
+    /// No partition table: RAW, or what Windows reports for a blank disk (MBR style, signature 0, no partitions).
+    /// </summary>
+    public static bool IsUninitialized(DiskInfo d) =>
+        d.Partitions.Count == 0 && (d.Style is not (PartitionStyle.Gpt or PartitionStyle.Mbr) || (d.Style == PartitionStyle.Mbr && (d.MbrSignature ?? 0) == 0));
+
     private static DiskInfo ApplyInitialize(DiskInfo d, InitializeDiskOp op, List<ValidationIssue> issues)
     {
-        if (d.Style is PartitionStyle.Gpt or PartitionStyle.Mbr || d.Partitions.Count > 0) return Fail(issues, "Init.Error.NotRaw", d);
+        if (!IsUninitialized(d)) return Fail(issues, "Init.Error.NotRaw", d);
         if (op.Style is not (PartitionStyle.Gpt or PartitionStyle.Mbr)) return Fail(issues, "Op.Error.DiskStyle", d, d.Number);
         if (op.Style == PartitionStyle.Mbr && d.SizeBytes > Mbr2TiB) Warn(issues, "Conv.Warn.SpaceBeyond2TB");
         Warn(issues, "Init.Warn.Raw");

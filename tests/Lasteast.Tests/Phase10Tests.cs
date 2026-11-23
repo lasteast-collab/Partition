@@ -126,6 +126,9 @@ public static class Phase10Tests
         Assert.True(sim.IsValid);
         Assert.Equal(PartitionStyle.Gpt, sim.After.Style);
         Assert.True(LayoutSimulator.Simulate(Fixtures.Disk(Fixtures.Real(), 1), new[] { new InitializeDiskOp(1, PartitionStyle.Gpt) }).AllIssues.Any(i => i.Key == "Init.Error.NotRaw"));
+        // what Windows reports for a blank disk: MBR, signature 0, no partitions
+        var blank = raw with { Style = PartitionStyle.Mbr, MbrSignature = 0 };
+        Assert.True(LayoutSimulator.Simulate(blank, new[] { new InitializeDiskOp(9, PartitionStyle.Gpt) }).IsValid);
         var after = sim.After with { Partitions = new List<PartitionInfo>() };
         Assert.Equal(null, GuardedExecutionEngine.Verify(new InitializeDiskOp(9, PartitionStyle.Gpt), sim.After, after));
     }

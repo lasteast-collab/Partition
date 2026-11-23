@@ -78,7 +78,7 @@ public sealed class DashboardViewModel : PageViewModel
             if (style == PartitionStyle.Mbr) A(EditorMode.ConvertToGpt, "\uE8AB");
             else if (style == PartitionStyle.Gpt) A(EditorMode.ConvertToMbr, "\uE8AB");
         }
-        if (style is not (PartitionStyle.Gpt or PartitionStyle.Mbr) && _selected.Disk.Disk.Partitions.Count == 0)
+        if (LayoutSimulator.IsUninitialized(_selected.Disk.Disk))
         {
             A(EditorMode.InitGpt, "\uE8F4");
             A(EditorMode.InitMbr, "\uE8F4");
