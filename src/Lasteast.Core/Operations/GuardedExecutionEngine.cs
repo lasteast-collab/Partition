@@ -197,7 +197,10 @@ public sealed class GuardedExecutionEngine
             catch (Exception ex) { return FailStep(i, op, sw.Elapsed, "Exec.Error.Inventory", ex.Message); }
 
             var after = live.Disks.FirstOrDefault(d => d.Number == op.DiskNumber);
-            if (after is null || DiskFingerprint.Identity(after) != DiskFingerprint.Identity(disk))
+            bool rewritesTable = op is ConvertStyleOp or CloneDiskOp;
+            if (after is null || (rewritesTable
+                    ? DiskFingerprint.Hardware(after) != DiskFingerprint.Hardware(disk)
+                    : DiskFingerprint.Identity(after) != DiskFingerprint.Identity(disk)))
                 return FailStep(i, op, sw.Elapsed, "Exec.Error.DiskChanged", null);
             var mismatch = Verify(op, expected.After, after);
             if (mismatch is not null) return FailStep(i, op, sw.Elapsed, "Exec.Error.Verify", mismatch);

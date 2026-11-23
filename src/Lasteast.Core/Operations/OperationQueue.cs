@@ -10,6 +10,9 @@ public static class DiskFingerprint
     public static string Identity(DiskInfo d) =>
         $"{d.Number}|{d.SizeBytes}|{d.Style}|{d.GptDiskId}|{d.MbrSignature}|{d.SerialNumber}|{d.Model}";
 
+    /// <summary>The hardware only (no table identifiers): used after operations that rewrite the table's IDs (conversion, clone).</summary>
+    public static string Hardware(DiskInfo d) => $"{d.Number}|{d.SizeBytes}|{d.SerialNumber}|{d.Model}";
+
     public static string Compute(DiskInfo d)
     {
         var sb = new StringBuilder(Identity(d));
