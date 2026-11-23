@@ -22,7 +22,7 @@ public sealed class FileBlockDevice : IBlockDevice
     private readonly FileStream _fs;
     public FileBlockDevice(string path, int sectorSize = 512, bool writable = true)
     {
-        _fs = new FileStream(path, FileMode.Open, writable ? FileAccess.ReadWrite : FileAccess.Read, FileShare.Read);
+        _fs = new FileStream(path, FileMode.Open, writable ? FileAccess.ReadWrite : FileAccess.Read, FileShare.ReadWrite);
         SectorSize = sectorSize;
     }
 
