@@ -945,5 +945,11 @@
   "Vd.Error.Exists": "The file already exists: {0}",
   "Vd.Init": "Initialize as GPT afterwards",
   "Vd.Subtitle": "Create, attach and detach VHD/VHDX files. Virtual disks are the safe place to try operations: Lasteast changes only virtual disks unless you allow physical ones in Settings.",
-  "Vd.UnknownFile": "(file not reported by Windows)"
+  "Vd.UnknownFile": "(file not reported by Windows)",
+  "Welcome.Intro": "See your disks, fix storage problems, recover lost data and move Windows to a new drive.",
+  "Welcome.Safety": "How it keeps your data safe: nothing changes until you review a before/after preview and type APPLY; the partition table is backed up first and every step is verified. Until you allow physical disks in Settings › Safety, only virtual disks (VHDX) can be changed.",
+  "Welcome.Scan": "Scan my computer",
+  "Welcome.Start": "Start",
+  "Welcome.Title": "Welcome to Lasteast Partition",
+  "Welcome.Try": "Practice on a virtual disk"
 }

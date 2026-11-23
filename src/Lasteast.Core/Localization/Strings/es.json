@@ -945,5 +945,11 @@
   "Vd.Error.Exists": "El archivo ya existe: {0}",
   "Vd.Init": "Inicializar como GPT después",
   "Vd.Subtitle": "Crea, conecta y desconecta archivos VHD/VHDX. Los discos virtuales son el lugar seguro para probar: Lasteast solo cambia discos virtuales salvo que permitas los físicos en Configuración.",
-  "Vd.UnknownFile": "(Windows no indicó el archivo)"
+  "Vd.UnknownFile": "(Windows no indicó el archivo)",
+  "Welcome.Intro": "Ve tus discos, corrige problemas de almacenamiento, recupera datos perdidos y mueve Windows a una unidad nueva.",
+  "Welcome.Safety": "Cómo protege tus datos: nada cambia hasta que revisas una vista previa antes/después y escribes APPLY; primero se copia la tabla de particiones y se verifica cada paso. Hasta que permitas discos físicos en Configuración › Seguridad, solo se pueden cambiar discos virtuales (VHDX).",
+  "Welcome.Scan": "Analizar mi equipo",
+  "Welcome.Start": "Empezar",
+  "Welcome.Title": "Bienvenido a Lasteast Partition",
+  "Welcome.Try": "Practicar con un disco virtual"
 }

@@ -1,0 +1,10 @@
+Lasteast Partition
+Copyright (c) Lasteast. All rights reserved.
+
+This software is provided "as is", without warranty of any kind, express or implied. Disk and partition operations
+can cause data loss if hardware fails or power is lost while they run. Back up important data before changing disks.
+Lasteast Partition backs up partition tables before every change and verifies each step, but it cannot back up your files
+unless you use its Data Backup feature.
+
+Free edition: personal use. Pro and Technician editions: commercial use under the license file issued to you.
+Safety, repair, recovery, backup and health features are available in every edition.

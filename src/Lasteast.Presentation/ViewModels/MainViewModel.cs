@@ -177,6 +177,10 @@ public sealed class MainViewModel : ObservableObject
             IsBusy = false;
         });
         DismissErrorCommand = new RelayCommand(() => ErrorText = null);
+        _store = store;
+        DismissWelcomeCommand = new RelayCommand(() => CloseWelcome());
+        WelcomeScanCommand = new AsyncRelayCommand(async () => { CloseWelcome(); SelectedNav = smartFixNav; await SmartFixPage.ScanCommand.ExecuteAsync(); });
+        WelcomeVirtualCommand = new RelayCommand(() => { CloseWelcome(); var n = NavGroups.SelectMany(g => g.Items).First(i => i.TitleKey == "Nav.VirtualDisks"); SelectedNav = n; });
         NavigateCommand = new RelayCommand(o => { if (o is NavItem n) SelectedNav = n; });
         OpenPendingCommand = new RelayCommand(() => SelectedNav = PendingNav, () => Queue.Count > 0);
         ScanMyComputerCommand = new AsyncRelayCommand(async () =>
@@ -251,6 +255,22 @@ public sealed class MainViewModel : ObservableObject
     public System.Collections.ObjectModel.ObservableCollection<AlertViewModel> Alerts { get; } = new();
     public bool HasAlerts => Alerts.Count > 0;
     public RelayCommand DismissAlertsCommand { get; }
+
+    // ---- first-run welcome
+    private readonly JsonSettingsStore _store;
+    public bool ShowWelcome => !AppSettings.WelcomeShown;
+    public RelayCommand DismissWelcomeCommand { get; }
+    public AsyncRelayCommand WelcomeScanCommand { get; }
+    public RelayCommand WelcomeVirtualCommand { get; }
+    public string VersionText => "v" + (typeof(MainViewModel).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion.Split('+')[0] ?? "?");
+
+    private void CloseWelcome()
+    {
+        AppSettings.WelcomeShown = true;
+        try { _store.Save(AppSettings); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        OnPropertyChanged(nameof(ShowWelcome));
+    }
 
     /// <summary>Starts the periodic check (Settings › Monitoring). Safe to call again after settings change.</summary>
     public void StartMonitor()

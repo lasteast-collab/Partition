@@ -22,5 +22,6 @@
     <Resource Include="Assets\logo-mark.png" />
     <Resource Include="Assets\app.ico" />
     <None Include="Assets\logo-full.jpg" CopyToOutputDirectory="Never" />
+    <SplashScreen Include="Assets\splash.png" />
   </ItemGroup>
 </Project>

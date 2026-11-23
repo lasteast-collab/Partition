@@ -1,5 +1,10 @@
 name: build
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
 jobs:
   windows:
     runs-on: windows-latest
@@ -15,3 +20,66 @@ jobs:
         run: dotnet run --project tests/Lasteast.IntegrationTests -c Release --no-build
       - name: Read-only inventory of the runner's disks
         run: dotnet run --project src/Lasteast.Cli -c Release --no-build -- inventory
+
+      # ---------------- packaging ----------------
+      - name: Publish app (self-contained) and command line / rescue tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet publish src/Lasteast.App -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=false -o artifacts/app
+          dotnet publish src/Lasteast.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/cli
+          New-Item -ItemType Directory -Force artifacts/app/rescue | Out-Null
+          Copy-Item artifacts/cli/lasteast.exe artifacts/app/rescue/lasteast.exe
+          Copy-Item artifacts/cli/lasteast.exe artifacts/app/lasteast.exe
+          Copy-Item docs/*.md artifacts/app/
+          Copy-Item LICENSE.txt artifacts/app/
+          & artifacts/app/lasteast.exe --help
+          if ($LASTEXITCODE -ne 0) { throw "CLI did not start" }
+      - name: Version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ($env:GITHUB_REF -like 'refs/tags/v*') { $v = $env:GITHUB_REF_NAME.Substring(1) }
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - name: Portable zip
+        shell: pwsh
+        run: |
+          $p = "artifacts/portable/Lasteast Partition"
+          New-Item -ItemType Directory -Force $p | Out-Null
+          Copy-Item artifacts/app/* $p -Recurse
+          New-Item -ItemType File "$p/portable" | Out-Null
+          Compress-Archive -Path "$p" -DestinationPath "artifacts/LasteastPartition-${{ steps.ver.outputs.version }}-portable-x64.zip"
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem "C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) { choco install innosetup -y --no-progress | Out-Null; $iscc = Get-Item "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc.FullName "/DAppVersion=${{ steps.ver.outputs.version }}" "/DSourceDir=..\artifacts\app" installer\LasteastPartition.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+      - name: Smoke test the installer (silent install, CLI, uninstall)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem artifacts/*-setup-x64.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/DIR=C:\LasteastTest' -Wait
+          if (-not (Test-Path 'C:\LasteastTest\LasteastPartition.exe')) { throw "app not installed" }
+          & 'C:\LasteastTest\lasteast.exe' inventory
+          if ($LASTEXITCODE -ne 0) { throw "installed CLI failed" }
+          Start-Process 'C:\LasteastTest\unins000.exe' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LasteastPartition-${{ steps.ver.outputs.version }}
+          path: |
+            artifacts/*-setup-x64.exe
+            artifacts/*-portable-x64.zip
+          if-no-files-found: error
+      - name: GitHub release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $files = Get-ChildItem artifacts/*-setup-x64.exe, artifacts/*-portable-x64.zip | ForEach-Object FullName
+          gh release create $env:GITHUB_REF_NAME @files --title "Lasteast Partition $env:GITHUB_REF_NAME" --notes-file CHANGELOG.md --prerelease
+    permissions:
+      contents: write

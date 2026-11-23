@@ -228,5 +228,27 @@
                 </StackPanel>
             </DockPanel>
         </Border>
+
+        <!-- ================= First-run welcome ================= -->
+        <Grid Grid.RowSpan="4" Background="#B0000000" Visibility="{Binding ShowWelcome, Converter={StaticResource BoolToVis}}">
+            <Border Style="{StaticResource Card}" MaxWidth="640" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28,24">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <Image Source="Assets/logo-mark.png" Width="64" Height="64" Margin="0,0,14,0" />
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{ui:Tr Welcome.Title}" FontSize="22" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding VersionText}" Style="{StaticResource Text.Muted}" />
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="{ui:Tr Welcome.Intro}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                    <TextBlock Text="{ui:Tr Welcome.Safety}" TextWrapping="Wrap" Margin="0,0,0,16" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Style="{StaticResource Button.Accent}" Command="{Binding WelcomeScanCommand}" Content="{ui:Tr Welcome.Scan}" Padding="14,8" Margin="0,0,8,0" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding WelcomeVirtualCommand}" Content="{ui:Tr Welcome.Try}" Padding="14,8" Margin="0,0,8,0" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding DismissWelcomeCommand}" Content="{ui:Tr Welcome.Start}" Padding="14,8" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

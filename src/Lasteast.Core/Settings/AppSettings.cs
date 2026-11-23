@@ -36,6 +36,9 @@ public sealed class AppSettings
     public string AssistantAiEndpoint { get; set; } = "https://api.openai.com/v1/chat/completions";
     public string AssistantAiModel { get; set; } = "gpt-4o-mini";
 
+    /// <summary>The first-run welcome has been dismissed.</summary>
+    public bool WelcomeShown { get; set; }
+
     /// <summary>Technician details printed on reports (Technician edition).</summary>
     public string? TechnicianName { get; set; }
 }

@@ -6,7 +6,7 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <Company>Lasteast</Company>
     <Product>Lasteast Partition</Product>
-    <Version>0.1.0</Version>
+    <Version>1.0.0-preview.1</Version>
     <Copyright>© Lasteast</Copyright>
   </PropertyGroup>
 </Project>

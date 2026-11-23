@@ -945,5 +945,11 @@
   "Vd.Error.Exists": "Die Datei existiert bereits: {0}",
   "Vd.Init": "Danach als GPT initialisieren",
   "Vd.Subtitle": "VHD/VHDX-Dateien erstellen, anfügen und trennen. Virtuelle Datenträger sind der sichere Ort zum Ausprobieren: Lasteast ändert nur virtuelle Datenträger, außer Sie erlauben physische in den Einstellungen.",
-  "Vd.UnknownFile": "(Datei von Windows nicht gemeldet)"
+  "Vd.UnknownFile": "(Datei von Windows nicht gemeldet)",
+  "Welcome.Intro": "Datenträger ansehen, Speicherprobleme beheben, verlorene Daten wiederherstellen und Windows auf ein neues Laufwerk umziehen.",
+  "Welcome.Safety": "So bleiben Ihre Daten sicher: Nichts ändert sich, bevor Sie eine Vorher/Nachher-Vorschau prüfen und APPLY eingeben; die Partitionstabelle wird zuerst gesichert und jeder Schritt geprüft. Bis Sie physische Datenträger unter Einstellungen › Sicherheit erlauben, lassen sich nur virtuelle Datenträger (VHDX) ändern.",
+  "Welcome.Scan": "Meinen Computer prüfen",
+  "Welcome.Start": "Los geht’s",
+  "Welcome.Title": "Willkommen bei Lasteast Partition",
+  "Welcome.Try": "Mit einem virtuellen Datenträger üben"
 }
