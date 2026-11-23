@@ -41,14 +41,14 @@ internal sealed class DiskImage : IDisposable
 
     public void Put(long offset, byte[] data)
     {
-        using var fs = new FileStream(Path, FileMode.Open);
+        using var fs = new FileStream(Path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
         fs.Position = offset;
         fs.Write(data);
     }
 
     public byte[] Get(long offset, int length)
     {
-        using var fs = new FileStream(Path, FileMode.Open, FileAccess.Read);
+        using var fs = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         fs.Position = offset;
         var b = new byte[length];
         fs.ReadExactly(b);
