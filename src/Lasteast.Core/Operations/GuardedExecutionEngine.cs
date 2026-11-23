@@ -198,7 +198,7 @@ public sealed class GuardedExecutionEngine
             // Re-read and verify before doing anything else. After raw table writes Windows publishes the new layout
             // asynchronously, so those are re-read a few times before a mismatch counts.
             bool raw = op is ConvertStyleOp or MovePartitionOp or CloneDiskOp or RecoverPartitionOp or RestoreTableOp or InitializeDiskOp or RepairBootSectorOp
-                or CopyPartitionOp or WipeOp or SanitizeDiskOp or RepairFileSystemOp or ConvertFileSystemOp or ReformatKeepingFilesOp or ConvertDiskTypeOp or ConvertPartitionKindOp;
+                or CopyPartitionOp or WipeOp or SanitizeDiskOp or RepairFileSystemOp or ConvertFileSystemOp or ReformatKeepingFilesOp or ConvertDiskTypeOp or ConvertPartitionKindOp or RepairMbrOp;
             DiskInfo? after = null;
             string? mismatch = null;
             for (int attempt = 0; ; attempt++)

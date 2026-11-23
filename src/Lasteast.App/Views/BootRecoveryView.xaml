@@ -20,6 +20,14 @@
                         <Button Style="{StaticResource Button.Accent}" Command="{Binding LoadBcdCommand}" Content="{ui:Tr Boot.LoadBcd}" Padding="12,6" Margin="0,0,8,0" />
                         <Button Style="{StaticResource Button.Outline}" Command="{Binding ExportBcdCommand}" Content="{ui:Tr Boot.ExportBcd}" Padding="12,6" />
                     </StackPanel>
+                    <WrapPanel Margin="0,0,0,8">
+                        <TextBlock Text="{ui:Tr Boot.Timeout}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <TextBox Text="{Binding TimeoutText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input}" Width="60" AutomationProperties.Name="{ui:Tr Boot.Timeout}" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding SetTimeoutCommand}" Content="{ui:Tr Boot.Apply}" Padding="8,2" Margin="6,0,16,0" />
+                        <TextBlock Text="{ui:Tr Boot.NewName}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <TextBox Text="{Binding RenameText, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Input}" Width="220" AutomationProperties.Name="{ui:Tr Boot.NewName}" />
+                    </WrapPanel>
+                    <TextBlock Text="{ui:Tr Boot.EditNote}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,0,0,8" />
                     <ItemsControl ItemsSource="{Binding BcdEntries}" Focusable="False">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:BcdRow}">
@@ -28,6 +36,13 @@
                                         <TextBlock FontWeight="SemiBold"><Run Text="{Binding Description, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Type, Mode=OneWay}" Foreground="{DynamicResource Brush.TextMuted}" /></TextBlock>
                                         <TextBlock Text="{Binding Identifier}" Style="{StaticResource Text.Muted}" />
                                         <TextBlock Style="{StaticResource Text.Muted}" TextWrapping="Wrap"><Run Text="{Binding Device, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Path, Mode=OneWay}" /></TextBlock>
+                                        <TextBlock Text="{ui:Tr Boot.IsDefault}" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent}" Visibility="{Binding IsDefault, Converter={StaticResource BoolToVis}}" />
+                                        <WrapPanel Margin="0,4,0,0" Visibility="{Binding IsBootEntry, Converter={StaticResource BoolToVis}}">
+                                            <Button Style="{StaticResource Button.Outline}" Command="{Binding SetDefaultCommand}" Content="{ui:Tr Boot.SetDefault}" Padding="8,2" Margin="0,0,6,0" />
+                                            <Button Style="{StaticResource Button.Outline}" Command="{Binding MoveUpCommand}" Content="{ui:Tr Pending.MoveUp}" Padding="8,2" Margin="0,0,6,0" />
+                                            <Button Style="{StaticResource Button.Outline}" Command="{Binding MoveDownCommand}" Content="{ui:Tr Pending.MoveDown}" Padding="8,2" Margin="0,0,6,0" />
+                                            <Button Style="{StaticResource Button.Outline}" Command="{Binding RenameCommand}" Content="{ui:Tr Boot.Rename}" Padding="8,2" />
+                                        </WrapPanel>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
@@ -41,7 +56,9 @@
                     <TextBlock Text="{ui:Tr Boot.EspTitle}" Style="{StaticResource Text.Section}" />
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <Button Style="{StaticResource Button.Outline}" Command="{Binding ListEspCommand}" Content="{ui:Tr Boot.ListEsp}" Padding="12,6" Margin="0,0,8,0" />
-                        <Button Style="{StaticResource Button.Outline}" Command="{Binding BackupEspCommand}" Content="{ui:Tr Boot.BackupEsp}" Padding="12,6" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding BackupEspCommand}" Content="{ui:Tr Boot.BackupEsp}" Padding="12,6" Margin="0,0,8,0" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding CheckEspCommand}" Content="{ui:Tr Boot.CheckEsp}" Padding="12,6" Margin="0,0,8,0" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding RestoreEspCommand}" Content="{ui:Tr Boot.RestoreEsp}" Padding="12,6" />
                     </StackPanel>
                     <ItemsControl ItemsSource="{Binding EspFiles}" Focusable="False" MaxHeight="220">
                         <ItemsControl.Template><ControlTemplate><ScrollViewer VerticalScrollBarVisibility="Auto"><ItemsPresenter /></ScrollViewer></ControlTemplate></ItemsControl.Template>
@@ -55,6 +72,24 @@
                     <TextBlock Text="{ui:Tr Boot.RepairTitle}" Style="{StaticResource Text.Section}" />
                     <TextBlock Text="{ui:Tr Boot.RepairHint}" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Margin="0,0,0,8" />
                     <Button Style="{StaticResource Button.Outline}" Command="{Binding RepairCommand}" Content="{ui:Tr Boot.Repair}" Padding="12,6" HorizontalAlignment="Left" />
+                    <TextBlock Text="{Binding EspReport}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="{Binding HasEspReport, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock Text="{ui:Tr Boot.MbrSection}" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                    <WrapPanel>
+                        <ComboBox ItemsSource="{Binding MbrDisks}" SelectedItem="{Binding MbrDisk}" MinWidth="260" Margin="0,0,6,6" AutomationProperties.Name="{ui:Tr LostP.Disk}">
+                            <ComboBox.ItemTemplate><DataTemplate DataType="{x:Type vm:DiskChoice}"><TextBlock Text="{Binding Title}" /></DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <ComboBox ItemsSource="{Binding MbrBackups}" SelectedItem="{Binding MbrBackup}" MinWidth="260" Margin="0,0,6,6" AutomationProperties.Name="{ui:Tr Boot.MbrSource}">
+                            <ComboBox.ItemTemplate><DataTemplate DataType="{x:Type vm:MbrBackupChoice}"><TextBlock Text="{Binding Title}" /></DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding RepairMbrCommand}" Content="{ui:Tr Boot.RepairMbr}" Padding="12,6" Margin="0,0,6,6" />
+                    </WrapPanel>
+                    <TextBlock Text="{ui:Tr Boot.WinReSection}" Style="{StaticResource Text.Section}" Margin="0,14,0,4" />
+                    <WrapPanel>
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding LoadWinReCommand}" Content="{ui:Tr Boot.WinReCheck}" Padding="12,6" Margin="0,0,6,6" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding EnableWinReCommand}" Content="{ui:Tr Boot.WinReEnable}" Padding="12,6" Margin="0,0,6,6" />
+                        <Button Style="{StaticResource Button.Outline}" Command="{Binding DisableWinReCommand}" Content="{ui:Tr Boot.WinReDisable}" Padding="12,6" Margin="0,0,6,6" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding WinReText}" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
 

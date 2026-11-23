@@ -89,6 +89,16 @@ public sealed record ConvertDiskTypeOp(int DiskNumber, bool ToDynamic) : DiskOpe
     public override int EstimatedSeconds => 10;
 }
 
+/// <summary>
+/// Rewrites the boot code of an MBR disk (bytes 0–439) — from a Lasteast partition-table backup of this disk, or with
+/// Microsoft's bootsect.exe when <see cref="BackupFolder"/> is null. The disk signature and partition entries are kept.
+/// </summary>
+public sealed record RepairMbrOp(int DiskNumber, string? BackupFolder) : DiskOperation(DiskNumber)
+{
+    public override OperationKind Kind => OperationKind.RepairMbr;
+    public override int EstimatedSeconds => 3;
+}
+
 /// <summary>MBR: turns a primary partition into a logical one inside the extended partition, or back. Data untouched.</summary>
 public sealed record ConvertPartitionKindOp(int DiskNumber, ulong OffsetBytes, bool ToLogical) : DiskOperation(DiskNumber)
 {

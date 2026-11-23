@@ -3,7 +3,7 @@ using Lasteast.Core.Models;
 namespace Lasteast.Core.Operations;
 
 public enum OperationKind { Create, Delete, Format, Resize, SetLabel, SetDriveLetter, ConvertStyle, Move, Clone, PrepareBoot, RecoverPartition, RestoreTable, RepairBoot, Initialize, SetActive, SetHidden, SetType, RepairBootSector,
-    CopyFiles, CopyPartition, Wipe, Sanitize, RepairFileSystem, ConvertFileSystem, ReformatKeepingFiles, ConvertDiskType, ConvertPartitionKind }
+    CopyFiles, CopyPartition, Wipe, Sanitize, RepairFileSystem, ConvertFileSystem, ReformatKeepingFiles, ConvertDiskType, ConvertPartitionKind, RepairMbr }
 
 /// <summary>
 /// A planned change to one disk. Operations are pure data: they describe intent and are only

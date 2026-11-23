@@ -175,3 +175,43 @@ public static class VirtualDiskFileTests
         Assert.True(refused, "VHD shrink refused");
     }
 }
+
+[SupportedOSPlatform("windows")]
+public static class MbrRepairIntegrationTests
+{
+    [Test]
+    public static async Task Mbr_boot_code_is_restored_from_a_lasteast_backup()
+    {
+        using var vd = await VirtualDisk.CreateAsync(1925, "convert mbr", "create partition primary size=40", "format fs=ntfs quick label=LE-MBR");
+        var dir = Path.Combine(Path.GetTempPath(), "lasteast-itest", "mbr-" + Guid.NewGuid().ToString("N"));
+        var log = new FileLog(Path.Combine(dir, "logs"));
+        var priv = new WindowsPrivilegeService();
+        var provider = new WindowsStorageInventoryProvider(log, priv);
+        var backups = new PartitionTableBackupService(Path.Combine(dir, "backups"));
+        var disk = await vd.ReadAsync();
+        // give the disk recognisable boot code, back it up, then damage the code
+        using (var dev = new PhysicalDiskDevice(disk, writable: true))
+        {
+            var s0 = new byte[512]; dev.Read(0, s0);
+            for (int i = 0; i < 440; i++) s0[i] = (byte)(i * 7 + 3);
+            dev.Write(0, s0); dev.Flush();
+        }
+        var rec = await backups.BackupAsync(await vd.ReadAsync(), await provider.GetInventoryAsync(), CancellationToken.None);
+        using (var dev = new PhysicalDiskDevice(disk, writable: true))
+        {
+            var s0 = new byte[512]; dev.Read(0, s0);
+            Array.Clear(s0, 0, 440);
+            dev.Write(0, s0); dev.Flush();
+        }
+        var engine = new GuardedExecutionEngine(provider, new WindowsOperationExecutor(provider, log, Path.Combine(dir, "journal")), backups, priv,
+            new JsonlOperationHistory(Path.Combine(dir, "h.jsonl")), log);
+        var r = await engine.ExecuteAsync(new DiskOperation[] { new RepairMbrOp(vd.Number, rec.Folder) }, await provider.GetInventoryAsync(), new ExecutionPolicy(false), "APPLY");
+        Assert.True(r.Succeeded, $"{r.FailureKey} {r.FailureDetail}");
+        using (var dev = new PhysicalDiskDevice(await vd.ReadAsync(), writable: false))
+        {
+            var s0 = new byte[512]; dev.Read(0, s0);
+            for (int i = 0; i < 440; i++) Assert.Equal((byte)(i * 7 + 3), s0[i]);
+        }
+        Assert.True((await vd.ReadAsync()).Partitions.Any(p => p.Volume?.Label == "LE-MBR"), "partition untouched");
+    }
+}

@@ -3,7 +3,7 @@ import json, importlib.util, pathlib
 langs = ["en","he","ar","fr","es","de","ru"]
 root = pathlib.Path(__file__).parent
 table = {}
-for i in range(1,19):
+for i in range(1,20):
     spec = importlib.util.spec_from_file_location(f"p{i}", root/f"strings_part{i}.py"); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
     for k,v in m.S.items():
         assert k not in table, k; table[k]=v

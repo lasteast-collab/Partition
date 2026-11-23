@@ -10,7 +10,14 @@ using static Lasteast.Presentation.ViewModels.Text;
 
 namespace Lasteast.Presentation.ViewModels;
 
-public sealed record BcdRow(string Type, string Description, string Identifier, string Device, string Path);
+public sealed record BcdRow(string Type, string Description, string Identifier, string Device, string Path,
+    RelayCommand? SetDefaultCommand = null, RelayCommand? MoveUpCommand = null, RelayCommand? MoveDownCommand = null, RelayCommand? RenameCommand = null,
+    bool IsDefault = false, bool IsBootEntry = false);
+public sealed record MbrBackupChoice(string Title, string? Folder)
+{
+    public override string ToString() => Title;
+}
+
 public sealed record BackupRow(string Title, string Detail, RelayCommand RestoreCommand);
 
 /// <summary>Boot recovery (spec module "Boot Recovery") and the rescue media builder.</summary>
@@ -64,11 +71,109 @@ public sealed class BootRecoveryPageViewModel : PageViewModel
             if (r.Any(i => i.IsError)) Status = string.Join(" ", r.Where(i => i.IsError).Select(OperationText.Issue)); else _openPending();
         });
         BuildIsoCommand = new AsyncRelayCommand(BuildIsoAsync, ex => { Err(ex); Building = false; });
+        _err = Err;
+        SetTimeoutCommand = new AsyncRelayCommand(async () =>
+        {
+            if (!int.TryParse(_timeout, out var t) || t is < 0 or > 999) { Status = L("Editor.InvalidSize"); return; }
+            if (!_shell.Confirm(L("Boot.EditTitle"), Loc.Instance.Format("Boot.ConfirmTimeout", t))) return;
+            var b = await _boot.SetTimeoutAsync(t);
+            Status = Loc.Instance.Format("Boot.Edited", b);
+        }, Err);
+        CheckEspCommand = new AsyncRelayCommand(async () =>
+        {
+            var files = await _boot.ListEspAsync();
+            var (missing, fallback) = EspAnalyzer.Check(files.Select(f => f.Path));
+            int esps = _inv?.Disks.Sum(d => d.Partitions.Count(p => p.Role == PartitionRole.EfiSystem)) ?? 0;
+            EspReport = (missing.Count == 0 ? L("Boot.EspOk") : Loc.Instance.Format("Boot.EspMissing", string.Join(", ", missing)))
+                        + " " + L(fallback ? "Boot.EspFallbackYes" : "Boot.EspFallbackNo")
+                        + (esps > 1 ? " " + Loc.Instance.Format("Boot.EspMultiple", esps) : "");
+        }, Err);
+        RestoreEspCommand = new AsyncRelayCommand(async () =>
+        {
+            if (_shell.PickFolder() is not { } folder) return;
+            if (!_shell.Confirm(L("Boot.EditTitle"), Loc.Instance.Format("Boot.ConfirmRestoreEsp", folder))) return;
+            var n = await _boot.RestoreEspAsync(folder);
+            Status = Loc.Instance.Format("Boot.EspRestored", n);
+        }, Err);
+        LoadWinReCommand = new AsyncRelayCommand(async () =>
+        {
+            var w = await _boot.WinReAsync();
+            WinReText = w.Enabled is null ? L("Boot.WinReUnknown") : Loc.Instance.Format(w.Enabled == true ? "Boot.WinReOn" : "Boot.WinReOff", w.Location ?? "—");
+        }, Err);
+        EnableWinReCommand = new AsyncRelayCommand(() => SetWinReAsync(true), Err);
+        DisableWinReCommand = new AsyncRelayCommand(() => SetWinReAsync(false), Err);
+        RepairMbrCommand = new RelayCommand(() =>
+        {
+            if (_mbrDisk is not { } d) { Status = L("LostP.PickDisk"); return; }
+            var r = _queue.TryAdd(new RepairMbrOp(d.Number, _mbrBackup?.Folder));
+            if (r.Any(i => i.IsError)) Status = string.Join(" ", r.Where(i => i.IsError).Select(OperationText.Issue)); else _openPending();
+        });
         CancelBuildCommand = new RelayCommand(() => _cts?.Cancel());
+    }
+
+    private Action<Exception> _err = _ => { };
+    private string _timeout = "30";
+    private string? _espReport, _winRe;
+    private DiskChoice? _mbrDisk;
+    private MbrBackupChoice? _mbrBackup;
+    public string TimeoutText { get => _timeout; set => Set(ref _timeout, value); }
+    public string? EspReport { get => _espReport; private set { Set(ref _espReport, value); OnPropertyChanged(nameof(HasEspReport)); } }
+    public bool HasEspReport => !string.IsNullOrEmpty(_espReport);
+    public string? WinReText { get => _winRe; private set => Set(ref _winRe, value); }
+    public AsyncRelayCommand SetTimeoutCommand { get; }
+    public AsyncRelayCommand CheckEspCommand { get; }
+    public AsyncRelayCommand RestoreEspCommand { get; }
+    public AsyncRelayCommand LoadWinReCommand { get; }
+    public AsyncRelayCommand EnableWinReCommand { get; }
+    public AsyncRelayCommand DisableWinReCommand { get; }
+    public RelayCommand RepairMbrCommand { get; }
+    public ObservableCollection<DiskChoice> MbrDisks { get; } = new();
+    public ObservableCollection<MbrBackupChoice> MbrBackups { get; } = new();
+    public DiskChoice? MbrDisk { get => _mbrDisk; set { if (Set(ref _mbrDisk, value)) FillMbrBackups(); } }
+    public MbrBackupChoice? MbrBackup { get => _mbrBackup; set => Set(ref _mbrBackup, value); }
+
+    private void FillMbrBackups()
+    {
+        MbrBackups.Clear();
+        MbrBackups.Add(new MbrBackupChoice(L("Boot.MbrBootsect"), null));
+        var disk = _inv?.Disks.FirstOrDefault(d => d.Number == _mbrDisk?.Number);
+        if (disk is null) return;
+        var list = new List<TableBackup>();
+        if (Directory.Exists(_backupRoot))
+            foreach (var folder in Directory.GetDirectories(_backupRoot).OrderByDescending(f => f).Take(60))
+                try { list.Add(TableBackups.Load(folder)); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Core.RawDisk.RawOperationException or System.Text.Json.JsonException or FormatException) { }
+        foreach (var b in list.Where(b => b.Style == PartitionStyle.Mbr && b.DiskSize == disk.SizeBytes
+                     && (string.IsNullOrEmpty(b.Serial) || b.Serial == disk.SerialNumber)).Take(20))
+            MbrBackups.Add(new MbrBackupChoice(Loc.Instance.Format("Boot.MbrFromBackup", b.Created.LocalDateTime.ToString("g")), b.Folder));
+        _mbrBackup = MbrBackups[0];
+        OnPropertyChanged(nameof(MbrBackup));
+    }
+
+    private async Task SetWinReAsync(bool enable)
+    {
+        if (!_shell.Confirm(L("Boot.EditTitle"), L(enable ? "Boot.ConfirmWinReOn" : "Boot.ConfirmWinReOff"))) return;
+        Status = await _boot.SetWinReAsync(enable);
+        await LoadWinReCommand.ExecuteAsync();
+    }
+
+    private async Task EditAsync(string confirmKey, object arg, Func<Task<string>> action)
+    {
+        if (!_shell.Confirm(L("Boot.EditTitle"), Loc.Instance.Format(confirmKey, arg))) return;
+        try
+        {
+            var backup = await action();
+            Status = Loc.Instance.Format("Boot.Edited", backup);
+            await LoadBcdAsync();
+        }
+        catch (Exception ex) { _err(ex); }
     }
 
     public override string TitleKey => "Nav.BootRecovery";
     public ObservableCollection<BcdRow> BcdEntries { get; } = new();
+    private string _rename = "";
+    /// <summary>New description for "Rename" on a boot entry.</summary>
+    public string RenameText { get => _rename; set => Set(ref _rename, value); }
     public ObservableCollection<string> EspFiles { get; } = new();
     public ObservableCollection<BackupRow> Backups { get; } = new();
     public ObservableCollection<string> RescueLog { get; } = new();
@@ -101,8 +206,34 @@ public sealed class BootRecoveryPageViewModel : PageViewModel
     private async Task LoadBcdAsync()
     {
         BcdEntries.Clear();
-        foreach (var e in await _boot.EnumerateBcdAsync())
-            BcdEntries.Add(new BcdRow(e.Type, e.Description, e.Identifier, e.Get("device") ?? "", e.Get("path") ?? ""));
+        var all = await _boot.EnumerateBcdAsync();
+        var manager = all.FirstOrDefault(e => e.Identifier == "{bootmgr}" || e.Get("displayorder") is not null);
+        var order = (manager?.Get("displayorder") ?? "").Split(new[] { ' ', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+        string? def = manager?.Get("default");
+        foreach (var e in all)
+        {
+            var id = e.Identifier;
+            int idx = order.IndexOf(id);
+            bool boot = idx >= 0;
+            RelayCommand? Move(int delta) => !boot ? null : new RelayCommand(async () =>
+            {
+                int j = idx + delta;
+                if (j < 0 || j >= order.Count) return;
+                var o = order.ToList();
+                (o[idx], o[j]) = (o[j], o[idx]);
+                await EditAsync("Boot.ConfirmOrder", e.Description, () => _boot.SetDisplayOrderAsync(o));
+            });
+            BcdEntries.Add(new BcdRow(e.Type, e.Description, id, e.Get("device") ?? "", e.Get("path") ?? "",
+                boot && id != def ? new RelayCommand(async () => await EditAsync("Boot.ConfirmDefault", e.Description, () => _boot.SetDefaultAsync(id))) : null,
+                Move(-1), Move(+1),
+                boot ? new RelayCommand(async () =>
+                {
+                    if (string.IsNullOrWhiteSpace(_rename)) { Status = L("Boot.TypeName"); return; }
+                    var name = _rename.Trim();
+                    await EditAsync("Boot.ConfirmRename", name, () => _boot.SetDescriptionAsync(id, name));
+                }) : null,
+                id == def, boot));
+        }
         Status = Loc.Instance.Format("Boot.BcdCount", BcdEntries.Count);
     }
 
@@ -131,6 +262,12 @@ public sealed class BootRecoveryPageViewModel : PageViewModel
         _inv = state.Inventory;
         OnPropertyChanged(nameof(FirmwareText));
         OnPropertyChanged(nameof(RescueStatus));
+        var keepMbr = _mbrDisk?.Number;
+        MbrDisks.Clear();
+        foreach (var d in _inv?.Disks.Where(d => d.Style == PartitionStyle.Mbr) ?? Enumerable.Empty<DiskInfo>())
+            MbrDisks.Add(new DiskChoice(d.Number, $"{L("Common.Disk")} {d.Number} — {d.Model} · {Size(d.SizeBytes)}"));
+        _mbrDisk = MbrDisks.FirstOrDefault(x => x.Number == keepMbr);
+        OnPropertyChanged(nameof(MbrDisk));
         Backups.Clear();
         if (_inv is null || _inv.IsSampleData || !Directory.Exists(_backupRoot)) return;
         foreach (var folder in Directory.GetDirectories(_backupRoot).OrderByDescending(f => f).Take(30))

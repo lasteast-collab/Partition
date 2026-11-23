@@ -125,6 +125,74 @@ public sealed class WindowsBootTools : IBootTools
         return n;
     }));
 
+    private string Bcdedit(string args)
+    {
+        var backup = ExportBcdAsync(Lasteast.Core.AppPaths.Bcd).GetAwaiter().GetResult();
+        var (code, output) = Proc.Run(Proc.System32("bcdedit.exe"), args);
+        _log.Info($"bcdedit {args}: exit {code} {output.Trim()} (backup {backup})");
+        if (code != 0) throw new OperationFailedException("Boot.Error.Bcdedit", output.Trim());
+        return backup;
+    }
+
+    private static string Id(string id) => id.StartsWith('{') && id.EndsWith('}') && id.IndexOfAny(new[] { '"', ' ', '&', '|' }) < 0 ? id
+        : throw new OperationFailedException("Boot.Error.Id", id);
+
+    public Task<string> SetDefaultAsync(string identifier) => Task.Run(() => Bcdedit($"/default {Id(identifier)}"));
+    public Task<string> SetTimeoutAsync(int seconds) => Task.Run(() => Bcdedit($"/timeout {Math.Clamp(seconds, 0, 999)}"));
+    public Task<string> SetDisplayOrderAsync(IReadOnlyList<string> identifiers) => Task.Run(() => Bcdedit("/displayorder " + string.Join(" ", identifiers.Select(Id))));
+    public Task<string> SetDescriptionAsync(string identifier, string description) => Task.Run(() =>
+    {
+        var d = description.Replace("\"", "").Trim();
+        if (d.Length is 0 or > 120) throw new OperationFailedException("Boot.Error.Description", description);
+        return Bcdedit($"/set {Id(identifier)} description \"{d}\"");
+    });
+
+    public Task<int> RestoreEspAsync(string backupFolder) => Task.Run(() =>
+    {
+        if (!Directory.Exists(backupFolder)) throw new OperationFailedException("Boot.Error.EspBackup", backupFolder);
+        var check = EspAnalyzer.Check(Directory.EnumerateFiles(backupFolder, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(backupFolder, f)));
+        if (check.Missing.Count > 0) throw new OperationFailedException("Boot.Error.EspBackup", string.Join(", ", check.Missing));
+        // the current ESP is kept first, so the restore itself can be undone
+        var safety = Path.Combine(Lasteast.Core.AppPaths.Backups, $"esp-before-restore-{DateTime.Now:yyyyMMdd-HHmmss}");
+        BackupEspAsync(safety).GetAwaiter().GetResult();
+        return WithEsp(root =>
+        {
+            int n = 0;
+            foreach (var f in Directory.EnumerateFiles(backupFolder, "*", SearchOption.AllDirectories))
+            {
+                var target = Path.Combine(root, Path.GetRelativePath(backupFolder, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(f, target, overwrite: true);
+                n++;
+            }
+            _log.Info($"ESP restored from {backupFolder}: {n} files (previous ESP saved in {safety})");
+            return n;
+        });
+    });
+
+    public Task<WinReStatus> WinReAsync() => Task.Run(() =>
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "Recovery", "ReAgent.xml");
+            if (!File.Exists(path)) return new WinReStatus(null, null);
+            var x = System.Xml.Linq.XDocument.Load(path);
+            var id = x.Descendants("WinreBCD").FirstOrDefault()?.Attribute("id")?.Value;
+            bool enabled = id is not null && Guid.TryParse(id.Trim('{', '}'), out var g) && g != Guid.Empty;
+            var loc = x.Descendants("WinreLocation").FirstOrDefault()?.Attribute("path")?.Value;
+            return new WinReStatus(enabled, loc);
+        }
+        catch (Exception) { return new WinReStatus(null, null); }
+    });
+
+    public Task<string> SetWinReAsync(bool enable) => Task.Run(() =>
+    {
+        var (code, output) = Proc.Run(Proc.System32("reagentc.exe"), enable ? "/enable" : "/disable");
+        _log.Info($"reagentc {(enable ? "/enable" : "/disable")}: exit {code} {output.Trim()}");
+        if (code != 0) throw new OperationFailedException("Boot.Error.Reagentc", output.Trim());
+        return output.Trim();
+    });
+
     /// <summary>Executes <see cref="RepairBootOp"/>: export BCD, then bcdboot from the running Windows.</summary>
     public void Repair(string backupFolder)
     {

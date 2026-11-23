@@ -452,6 +452,7 @@ public sealed class WindowsOperationExecutor : Lasteast.Core.Operations.IOperati
             case Lasteast.Core.Operations.ConvertFileSystemOp cv: await _ext.ConvertFileSystemAsync(cv, liveDisk); await Task.Delay(1500, CancellationToken.None); return;
             case Lasteast.Core.Operations.ReformatKeepingFilesOp rk: await _ext.ReformatKeepingFilesAsync(rk, liveDisk, cancellationToken); return;
             case Lasteast.Core.Operations.ConvertDiskTypeOp dt: await _ext.ConvertDiskTypeAsync(dt, liveDisk); await Task.Delay(2000, CancellationToken.None); return;
+            case Lasteast.Core.Operations.RepairMbrOp rm: await _ext.RepairMbrAsync(rm, liveDisk); return;
             case Lasteast.Core.Operations.ConvertPartitionKindOp pk: await _ext.ConvertPartitionKindAsync(pk, liveDisk); await Task.Delay(2000, CancellationToken.None); return;
             case Lasteast.Core.Operations.ConvertStyleOp c:
                 await Raw(() => _raw.ConvertStyle(liveDisk, c.Target));

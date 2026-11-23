@@ -246,6 +246,42 @@ internal sealed class ExtendedExecutor(IStorageInventoryProvider inventory, Stor
         finally { File.Delete(script); }
     });
 
+    /// <summary>bootsect.exe ships with Windows PE / WinRE and the ADK, not with every Windows: look in the usual places.</summary>
+    private static string? FindBootsect()
+    {
+        var candidates = new List<string> { Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "bootsect.exe") };
+        foreach (var pf in new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) })
+            candidates.Add(Path.Combine(pf, "Windows Kits", "10", "Assessment and Deployment Kit", "Deployment Tools", "amd64", "BCDBoot", "bootsect.exe"));
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    public Task RepairMbrAsync(RepairMbrOp r, DiskInfo disk) => Task.Run(() =>
+    {
+        if (r.BackupFolder is { } folder)
+        {
+            var backup = Lasteast.Core.Boot.TableBackups.Load(folder, (int)disk.BytesPerLogicalSector);
+            if (backup.Style != PartitionStyle.Mbr || backup.Head.Length < 512 || backup.Head[510] != 0x55 || backup.Head[511] != 0xAA)
+                throw new OperationFailedException("Mbr.Error.Backup", folder);
+            using var dev = new PhysicalDiskDevice(disk, writable: true);
+            var s0 = new byte[disk.BytesPerLogicalSector];
+            dev.Read(0, s0);
+            backup.Head.AsSpan(0, 440).CopyTo(s0); // boot code only; signature and partition entries stay as they are now
+            dev.Write(0, s0);
+            dev.Flush();
+            var check = new byte[s0.Length];
+            dev.Read(0, check);
+            if (!check.AsSpan().SequenceEqual(s0)) throw new OperationFailedException("Mbr.Error.Verify");
+            log.Info($"MBR boot code of disk {disk.Number} restored from {folder}");
+            return;
+        }
+        var tool = FindBootsect() ?? throw new OperationFailedException("Mbr.Error.NoBootsect");
+        var target = disk.Partitions.Select(p => p.Volume?.DriveLetter).FirstOrDefault(l => l is not null)
+                     ?? throw new OperationFailedException("Mbr.Error.NoLetter");
+        var (exit, output) = Tool.Run(tool, $"/nt60 {target}: /mbr");
+        log.Info($"bootsect /nt60 {target}: /mbr: exit {exit}\n{output}");
+        if (exit != 0) throw new OperationFailedException("Mbr.Error.Bootsect", LastLines(output));
+    });
+
     public Task ConvertPartitionKindAsync(ConvertPartitionKindOp c, DiskInfo disk) => Task.Run(() =>
     {
         using var locks = VolumeLocks.Acquire(disk.Partitions.Select(p => p.Volume?.VolumeGuidPath).OfType<string>()

@@ -56,6 +56,7 @@ public static class OperationText
             ConvertFileSystemOp cv => Loc.Instance.Format("OpText.ConvertFs", Target(cv.OffsetBytes), cv.TargetFileSystem, disk),
             ReformatKeepingFilesOp rk => Loc.Instance.Format("OpText.Reformat", Target(rk.OffsetBytes), rk.FileSystem,
                 rk.ClusterSizeBytes is { } cs ? Size((ulong)cs) : L("Editor.ClusterDefault"), rk.StagingFolder),
+            RepairMbrOp rm => Loc.Instance.Format(rm.BackupFolder is null ? "OpText.RepairMbrBootsect" : "OpText.RepairMbrBackup", disk, rm.BackupFolder ?? ""),
             ConvertDiskTypeOp dt => Loc.Instance.Format(dt.ToDynamic ? "OpText.ToDynamic" : "OpText.ToBasic", disk),
             ConvertPartitionKindOp pk => Loc.Instance.Format(pk.ToLogical ? "OpText.ToLogical" : "OpText.ToPrimary", Target(pk.OffsetBytes), disk),
             _ => op.ToString(),

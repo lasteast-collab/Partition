@@ -222,3 +222,26 @@ public static class Batch2Tests
         Assert.True(defrag.Fix == Lasteast.Core.SmartFix.FixKind.Optimize && defrag.OptimizeAction == Lasteast.Core.Optimization.OptimizeAction.Defragment);
     }
 }
+
+public static class Batch4Tests
+{
+    [Test]
+    public static void Esp_analyzer_finds_missing_boot_files()
+    {
+        var ok = Lasteast.Core.Boot.EspAnalyzer.Check(new[] { "EFI/Microsoft/Boot/bootmgfw.efi", @"EFI\Microsoft\Boot\BCD", @"\EFI\Boot\bootx64.efi" });
+        Assert.True(ok.Missing.Count == 0 && ok.HasFallback);
+        var bad = Lasteast.Core.Boot.EspAnalyzer.Check(new[] { @"EFI\Microsoft\Boot\BCD" });
+        Assert.True(bad.Missing.Single().EndsWith("bootmgfw.efi") && !bad.HasFallback);
+    }
+
+    [Test]
+    public static void Mbr_repair_only_on_mbr_disks()
+    {
+        var inv = Fixtures.Real();
+        var d0 = Fixtures.Disk(inv, 0);
+        var mbr = Fixtures.Disk(inv, 1);
+        Assert.True(LayoutSimulator.Simulate(d0 with { Style = PartitionStyle.Gpt }, new[] { new RepairMbrOp(0, null) }).AllIssues.Any(i => i.Key == "Mbr.Error.NotMbr"));
+        var ok = LayoutSimulator.Simulate(mbr with { Style = PartitionStyle.Mbr }, new[] { new RepairMbrOp(1, null) });
+        Assert.True(ok.IsValid && ok.AllIssues.Any(i => i.Key == "Mbr.Warn.CodeOnly"));
+    }
+}

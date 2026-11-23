@@ -74,6 +74,7 @@ public static partial class LayoutSimulator
         if (op is WipeOp { OffsetBytes: null } wipeDisk) return ApplyWipe(d, wipeDisk, issues);
         if (op is SanitizeDiskOp sanitize) return ApplySanitize(d, sanitize, issues);
         if (op is ConvertDiskTypeOp diskType) return ApplyConvertDiskType(d, diskType, issues);
+        if (op is RepairMbrOp mbr) return ApplyRepairMbr(d, mbr, issues);
 
         // ---- disk-level gates
         if (d.Style is not (PartitionStyle.Gpt or PartitionStyle.Mbr)) return Fail(issues, "Op.Error.DiskStyle", d, d.Number);

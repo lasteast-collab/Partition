@@ -129,6 +129,14 @@ public static partial class LayoutSimulator
         });
     }
 
+    private static DiskInfo ApplyRepairMbr(DiskInfo d, RepairMbrOp r, List<ValidationIssue> issues)
+    {
+        if (d.Style != PartitionStyle.Mbr) return Fail(issues, "Mbr.Error.NotMbr", d);
+        if (r.BackupFolder is { } f && !Directory.Exists(f)) return Fail(issues, "Mbr.Error.Backup", d, f);
+        Warn(issues, "Mbr.Warn.CodeOnly");
+        return d;
+    }
+
     private static DiskInfo ApplyConvertDiskType(DiskInfo d, ConvertDiskTypeOp c, List<ValidationIssue> issues)
     {
         if (c.ToDynamic == d.IsDynamic) return Fail(issues, "Op.Error.NoChange", d);
