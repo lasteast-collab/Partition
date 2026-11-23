@@ -3,11 +3,24 @@
 Legend: ✅ implemented · 🟡 partial · ⏳ planned (phase) · 🚫 will not be built (see note)
 
 > **Build verification.** Every push is built and tested on GitHub Actions (`windows-latest`): the full solution
-> including the WPF app, 108 unit tests, and integration tests that run the real engine as administrator against
+> including the WPF app, 113 unit tests, and integration tests that run the real engine as administrator against
 > freshly created VHDX virtual disks (create/format/resize/label/letter, MBR↔GPT conversion, partition move,
-> disk clone, bcdboot onto an ESP, offline registry edit, undelete of files deleted by Windows, restore of a partition deleted by diskpart, BCD parsing, table restore from the engine's automatic backup) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
+> disk clone, bcdboot onto an ESP, offline registry edit, undelete of files deleted by Windows, restore of a partition deleted by diskpart, BCD parsing, table restore from the engine's automatic backup, NVMe health log, unbuffered benchmark, surface test) and read the data back through Windows afterwards. Nothing in CI touches a physical disk.
 
-## Phase 8 — Boot recovery, rescue media, account recovery, backup  (this build)
+## Phase 9 — Health, performance, monitoring  (this build)
+
+| Feature | Status | Notes |
+|---|---|---|
+| NVMe SMART/Health log (critical warnings, temperature, spare, percentage used, data written, media errors, power-on hours) | ✅ | Read from the CI runner's real NVMe disks |
+| ATA SMART attributes and thresholds | 🟡 | Parser unit-tested; IOCTL path not exercised in CI (no SATA disk on the runner). Not available behind most USB bridges |
+| Windows reliability counters and health status | ✅ | |
+| Health verdict from reported values only; Unknown when nothing is reported | ✅ | Never estimated or invented |
+| Benchmark: sequential 1 MiB, random 4 KiB QD1, cache bypassed | ✅ | Temporary file, always deleted |
+| Read-only surface test with bad-sector location and block map | ✅ | Never writes or "repairs" |
+| Background monitoring (free space, health, temperature) with alert banner | ✅ | While the app is open; settings for interval and threshold |
+| Windows toast notifications / monitoring when the app is closed | ⏳ | Needs a packaged app identity or a service |
+
+## Phase 8 — Boot recovery, rescue media, account recovery, backup
 
 | Feature | Status | Notes |
 |---|---|---|
